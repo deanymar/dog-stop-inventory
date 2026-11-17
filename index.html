@@ -20,7 +20,7 @@ h2{font-size:16px;margin:0 0 10px}
 .bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
 label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mute)}
 input,select,button{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);min-height:38px}
-button{cursor:pointer}button.pri{background:var(--a);border-color:var(--a);color:#fff;font-weight:600}
+button{cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}button.pri{background:var(--a);border-color:var(--a);color:#fff;font-weight:600}
 :focus-visible{outline:2px solid var(--a);outline-offset:2px}
 .badge{background:var(--d);color:#fff;border-radius:10px;padding:0 7px;margin-left:6px;font-size:12px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
@@ -36,7 +36,7 @@ svg{width:100%;height:auto}
 table{border-collapse:collapse;width:100%;font-size:13px}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
 .al{border-left:4px solid var(--d)}
-#msg{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);padding:8px 14px;border-radius:6px;color:#fff;z-index:9}
+#msg{position:fixed;top:64px;left:50%;transform:translateX(-50%);padding:8px 14px;border-radius:6px;color:#fff;z-index:9}
 #msg:empty{display:none}#msg.ok{background:var(--a)}#msg.bad{background:var(--d)}
 .sites{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
 .sites .card{text-align:center;break-inside:avoid}.sites .q{display:flex;justify-content:center;margin:8px 0}
@@ -57,8 +57,9 @@ const S={sites:[],skus:[],sup:[],task:null,lines:[]};let role="none";
 const today=()=>new Date().toISOString().slice(0,10),money=n=>"$"+(+n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const opt=(a,v,l)=>a.map(x=>`<option value="${x[v]}">${H(typeof l==="function"?l(x):x[l])}</option>`).join("");
 const skuName=id=>{const k=S.skus.find(x=>x.sku_id==id);return k?k.sku_code:id};
-function msg(t,bad){const m=$("#msg");m.textContent=t;m.className=bad?"bad":"ok";setTimeout(()=>m.textContent="",6000)}
+function msg(t,bad){const m=$("#msg");m.textContent=t;m.className=bad?"bad":"ok";setTimeout(()=>m.textContent="",5000)}
 async function Q(p){const{data,error}=await p;if(error){msg(error.message,1);return null}return data}
+async function W(p){const{error}=await p;if(error){msg(error.message,1);return false}return true}
 
 async function boot(){
   const{data:{session}}=await sb.auth.getSession();
@@ -124,7 +125,7 @@ async function draw(){
 /* ---------- Log order ---------- */
 function logPage(){
   S.lines=[];const t=S.task;
-  $("#app").innerHTML=`<div class="card"><h2>Order</h2><div class="g"><label>Order number<input id="on" value="${H(t?t.reference:"")}"></label><label>Supplier<select id="su">${opt(S.sup,"supplier_id","name")}</select></label><label>Destination site<select id="si">${opt(S.sites,"site_id","name")}</select></label><label>Order date<input type="date" id="od" value="${today()}"></label></div></div>
+  $("#app").innerHTML=`<div class="card"><h2>Order</h2><div class="g"><label>Order number (from supplier)<input id="on" value="${H(t?t.reference:"")}"></label><label>Supplier<select id="su">${opt(S.sup,"supplier_id","name")}</select></label><label>Destination site<select id="si">${opt(S.sites,"site_id","name")}</select></label><label>Order date<input type="date" id="od" value="${today()}"></label></div></div>
   <div class="card"><h2>Lines</h2><div class="g"><label>SKU<select id="sk">${opt(S.skus,"sku_id",k=>k.sku_code+" "+k.description)}</select></label><label>Quantity<input type="number" step="any" min="0" id="q"></label><label>Unit price<input type="number" step="any" min="0" id="p"></label><label>Unit freight<input type="number" step="any" min="0" id="fr" value="0"></label><label>Unit duty/tax<input type="number" step="any" min="0" id="du" value="0"></label><label>Unit other<input type="number" step="any" min="0" id="ot" value="0"></label></div>
   <p>Landed unit cost <b id="lc">$0.00</b> &nbsp; Line total <b id="lt">$0.00</b></p><button id="al">Add line</button><div id="ll" style="margin-top:10px"></div></div><button class="pri" id="sv">Save order</button>`;
   if(t){if(t.sku_id)$("#sk").value=t.sku_id;if(t.site_id)$("#si").value=t.site_id}
@@ -138,7 +139,7 @@ function logPage(){
     $("#q").value="";$("#p").value="";calc();show();
   };
   $("#sv").onclick=async()=>{
-    if(!$("#on").value.trim())return msg("Enter the order number.",1);
+    if(!$("#on").value.trim())return msg("Enter the order number from the supplier.",1);
     if(!S.lines.length)return msg("Add at least one line.",1);
     const o=await Q(sb.from("orders").insert({order_number:$("#on").value.trim(),supplier_id:+$("#su").value,site_id:+$("#si").value,order_date:$("#od").value}).select().single());
     if(!o)return;
@@ -156,28 +157,29 @@ async function tasksPage(){
   <div class="card"><h2>Add task</h2><div class="g"><label>Order number or note<input id="tr"></label><label>SKU (optional)<select id="ts"><option value="">None</option>${opt(S.skus,"sku_id","sku_code")}</select></label><label>Site (optional)<select id="tl"><option value="">None</option>${opt(S.sites,"site_id","name")}</select></label></div><p><button id="ta">Add task</button></p></div>`;
   document.querySelectorAll("[data-id]").forEach(b=>b.onclick=()=>{S.task=t.find(x=>x.task_id==b.dataset.id);location.hash="log"});
   $("#ta").onclick=async()=>{if(!$("#tr").value.trim())return msg("Enter an order number or note.",1);
-    const r=await Q(sb.from("pending_tasks").insert({reference:$("#tr").value.trim(),sku_id:$("#ts").value||null,site_id:$("#tl").value||null,status:"open"}));
-    if(r!==null){msg("Task added.");route()}};
+    const r=await W(sb.from("pending_tasks").insert({reference:$("#tr").value.trim(),sku_id:$("#ts").value||null,site_id:$("#tl").value||null,status:"open"}));
+    if(r){msg("Task added.");route()}};
 }
 
 /* ---------- Sites and QR codes ---------- */
 function sitePath(c){return location.origin+location.pathname+"#site-"+c}
 function sitesPage(){
   $("#app").innerHTML=`<div class="bar noprint"><button onclick="print()">Print labels</button></div><div class="sites">${S.sites.map(s=>`<div class="card"><b>${H(s.name)}</b><div class="q" id="q${s.site_id}"></div><div>Scan to record usage</div><div class="m">${H(s.site_code)}</div></div>`).join("")}</div>
-  ${role==="site_staff"?"":`<div class="card noprint" style="margin-top:14px"><h2>Add site</h2><div class="g"><label>Name<input id="sn"></label><label>Code (lowercase, digits, hyphens)<input id="sc"></label></div><p><button id="sa">Add site</button></p></div>`}`;
+  ${role==="site_staff"?"":`<div class="card noprint" style="margin-top:14px"><h2>Add site</h2><div class="g"><label>Name<input id="sn"></label><label>Code (lowercase, digits, hyphens)<input id="sc"></label></div><p><button id="sa" disabled>Add site</button></p></div>`}`;
   S.sites.forEach(s=>new QRCode($("#q"+s.site_id),{text:sitePath(s.site_code),width:140,height:140}));
-  const a=$("#sa");if(a)a.onclick=async()=>{const r=await Q(sb.from("sites").insert({name:$("#sn").value.trim(),site_code:$("#sc").value.trim()}));if(r!==null){msg("Site added.");boot()}};
+  const a=$("#sa");if(a){const f=()=>{a.disabled=!($("#sn").value.trim()&&$("#sc").value.trim())};$("#sn").oninput=f;$("#sc").oninput=f}if(a)a.onclick=async()=>{const r=await W(sb.from("sites").insert({name:$("#sn").value.trim(),site_code:$("#sc").value.trim()}));if(r){msg("Site added.");boot()}};
 }
 
 /* ---------- Setup: suppliers and SKUs ---------- */
 function setupPage(){
   const li=(a,f)=>a.length?`<table>${a.map(x=>`<tr><td>${H(f(x))}</td></tr>`).join("")}</table>`:'<p class="m">None yet.</p>';
-  $("#app").innerHTML=`<div class="two"><div class="card"><h2>Suppliers</h2>${li(S.sup,x=>x.name)}<div class="g" style="margin-top:10px"><label>Supplier name<input id="sn"></label><label>Notes (optional)<input id="snt"></label></div><p><button class="pri" id="sa">Add supplier</button></p></div>
-  <div class="card"><h2>SKUs</h2>${li(S.skus,x=>x.sku_code+" "+x.description)}<div class="g" style="margin-top:10px"><label>SKU code<input id="kc"></label><label>Description<input id="kd"></label><label>Unit of measure<input id="ku" value="each"></label></div><p><button class="pri" id="ka">Add SKU</button></p></div></div>`;
+  $("#app").innerHTML=`<div class="two"><div class="card"><h2>Suppliers</h2>${li(S.sup,x=>x.name)}<div class="g" style="margin-top:10px"><label>Supplier name<input id="sn"></label><label>Notes (optional)<input id="snt"></label></div><p><button class="pri" id="sa" disabled>Add supplier</button></p></div>
+  <div class="card"><h2>SKUs</h2>${li(S.skus,x=>x.sku_code+" "+x.description)}<div class="g" style="margin-top:10px"><label>SKU code<input id="kc"></label><label>Description<input id="kd"></label><label>Unit of measure<select id="ku"><option>each</option><option>pack</option><option>box</option><option>case</option><option>bag</option><option>bottle</option><option>roll</option><option>pounds</option><option>ounces</option><option>gallons</option><option>liters</option><option>inches</option><option>feet</option></select></label></div><p><button class="pri" id="ka" disabled>Add SKU</button></p></div></div>`;
+  const on=(ids,b)=>{const f=()=>{$(b).disabled=!ids.every(i=>$(i).value.trim())};ids.forEach(i=>$(i).oninput=f)};on(["#sn"],"#sa");on(["#kc","#kd"],"#ka");
   $("#sa").onclick=async()=>{const n=$("#sn").value.trim();if(!n)return msg("Enter the supplier name.",1);
-    const r=await Q(sb.from("suppliers").insert({name:n,notes:$("#snt").value.trim()||null}));if(r!==null){msg("Supplier added.");await boot();location.hash="setup"}};
+    const r=await W(sb.from("suppliers").insert({name:n,notes:$("#snt").value.trim()||null}));if(r){msg("Supplier added.");await boot();location.hash="setup"}};
   $("#ka").onclick=async()=>{const c=$("#kc").value.trim(),d=$("#kd").value.trim();if(!c||!d)return msg("Enter the SKU code and a description.",1);
-    const r=await Q(sb.from("skus").insert({sku_code:c,description:d,unit_of_measure:$("#ku").value.trim()||"each"}));if(r!==null){msg("SKU added.");await boot();location.hash="setup"}};
+    const r=await W(sb.from("skus").insert({sku_code:c,description:d,unit_of_measure:$("#ku").value}));if(r){msg("SKU added.");await boot();location.hash="setup"}};
 }
 
 /* ---------- Site page (opened from a QR code) ---------- */
@@ -194,9 +196,9 @@ async function sitePage(code){
   <div class="card"><h2>Record usage</h2><div class="g"><label>SKU<select id="us">${opt(S.skus,"sku_id","sku_code")}</select></label><label>Type<select id="ut"><option value="use">Use</option><option value="waste">Waste</option><option value="adjustment">Count adjustment (+ or −)</option></select></label><label>Quantity<input type="number" step="any" id="uq"></label><label>Note<input id="un"></label></div><p><button class="pri" id="ub">Save usage</button></p></div>
   <div class="card"><h2>Receive delivery</h2><div class="g"><label>Order line<select id="ro">${od.flatMap(o=>o.order_lines.map(l=>`<option value="${o.order_id}|${l.sku_id}">${H(o.order_number)} · ${H(skuName(l.sku_id))}</option>`)).join("")}</select></label><label>Arrival date<input type="date" id="rd" value="${today()}"></label><label>Quantity received<input type="number" step="any" min="0" id="rq"></label></div><p><button class="pri" id="rb">Save delivery</button></p></div>`;
   $("#ub").onclick=async()=>{let q=+$("#uq").value,t=$("#ut").value;if(!q)return msg("Enter a quantity.",1);if(t!=="adjustment")q=-Math.abs(q);
-    const x=await Q(sb.from("usage_events").insert({site_id:s.site_id,sku_id:+$("#us").value,event_type:t,quantity_change:q,note:$("#un").value||null}));if(x!==null){msg("Usage saved.");sitePage(code)}};
+    const x=await W(sb.from("usage_events").insert({site_id:s.site_id,sku_id:+$("#us").value,event_type:t,quantity_change:q,note:$("#un").value||null}));if(x){msg("Usage saved.");sitePage(code)}};
   $("#rb").onclick=async()=>{const p=$("#ro").value.split("|");if(!p[0]||!(+$("#rq").value>0))return msg("Choose an order line and enter a quantity.",1);
-    const x=await Q(sb.from("inventory_records").insert({order_id:+p[0],sku_id:+p[1],arrival_date:$("#rd").value,quantity_received:+$("#rq").value}));if(x!==null){msg("Delivery saved.");sitePage(code)}};
+    const x=await W(sb.from("inventory_records").insert({order_id:+p[0],sku_id:+p[1],arrival_date:$("#rd").value,quantity_received:+$("#rq").value}));if(x){msg("Delivery saved.");sitePage(code)}};
 }
 boot();
 </script>
