@@ -102,14 +102,14 @@ async function draw(){
   const sku=$("#fs").value,f=$("#ff").value,t=$("#ft").value;
   const r=await Promise.all([
     Q(sb.from("orders").select("order_date,order_lines(sku_id,quantity_ordered,line_spend)").gte("order_date",f).lte("order_date",t)),
-    Q(sb.from("usage_events").select("sku_id,quantity_change,recorded_at").eq("event_type","use").gte("recorded_at",f).lte("recorded_at",t+"T23:59:59")),
+    Q(sb.from("usage_events").select("sku_id,quantity_change,created_at").eq("event_type","use").gte("created_at",f).lte("created_at",t+"T23:59:59")),
     Q(sb.from("v_lead_time_alerts").select("*"))]);
   const lines=(r[0]||[]).flatMap(o=>o.order_lines.map(l=>({...l,d:o.order_date}))).filter(l=>!sku||l.sku_id==sku);
   const M={},by={};
   lines.forEach(l=>{const k=l.d.slice(0,7);(M[k]=M[k]||{u:0,s:0});M[k].u+=+l.quantity_ordered;M[k].s+=+l.line_spend;(by[l.sku_id]=by[l.sku_id]||{u:0,s:0});by[l.sku_id].u+=+l.quantity_ordered;by[l.sku_id].s+=+l.line_spend});
   const ks=Object.keys(M).sort(),U=lines.reduce((a,l)=>a+ +l.quantity_ordered,0),SP=lines.reduce((a,l)=>a+ +l.line_spend,0);
   const W={};
-  (r[1]||[]).filter(e=>!sku||e.sku_id==sku).forEach(e=>{const d=new Date(e.recorded_at);d.setDate(d.getDate()-(d.getDay()+6)%7);const k=d.toISOString().slice(0,10);W[k]=(W[k]||0)-e.quantity_change});
+  (r[1]||[]).filter(e=>!sku||e.sku_id==sku).forEach(e=>{const d=new Date(e.created_at);d.setDate(d.getDate()-(d.getDay()+6)%7);const k=d.toISOString().slice(0,10);W[k]=(W[k]||0)-e.quantity_change});
   const wk=Object.keys(W).sort(),hot=wk.slice().sort((a,b)=>W[b]-W[a]).slice(0,3),wm=Math.max(...wk.map(k=>W[k]),1);
   const al=r[2]||[],cols=al.length?Object.keys(al[0]):[];
   $("#d").innerHTML=`<div class="tiles"><div><span>Total spend</span><b>${money(SP)}</b></div><div><span>Units ordered</span><b>${U.toLocaleString()}</b></div><div><span>Avg landed cost</span><b>${U?money(SP/U):"—"}</b></div><div><span>Open alerts</span><b>${al.length}</b></div></div>
