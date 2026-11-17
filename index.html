@@ -78,12 +78,12 @@ async function badge(){const{count}=await sb.from("pending_tasks").select("*",{c
 function route(){
   const h=location.hash.slice(1);
   const staff=role==="site_staff";
-  $("#nav").innerHTML=(staff?[["sites","Sites"]]:[["dashboard","Dashboard"],["log","Log order"],["tasks","Pending tasks"],["sites","Sites"]]).map(x=>`<a href="#${x[0]}" class="${h===x[0]?"on":""}">${x[1]}</a>`).join("")+`<a href="#out" id="out">Sign out</a>`;
+  $("#nav").innerHTML=(staff?[["sites","Sites"]]:[["dashboard","Dashboard"],["log","Log order"],["tasks","Pending tasks"],["sites","Sites"],["setup","Setup"]]).map(x=>`<a href="#${x[0]}" class="${h===x[0]?"on":""}">${x[1]}</a>`).join("")+`<a href="#out" id="out">Sign out</a>`;
   $("#out").onclick=async e=>{e.preventDefault();await sb.auth.signOut();location.hash="";boot()};
   badge();
   if(h.startsWith("site-"))return sitePage(h.slice(5));
   if(staff)return sitesPage();
-  ({log:logPage,tasks:tasksPage,sites:sitesPage}[h]||dash)();
+  ({log:logPage,tasks:tasksPage,sites:sitesPage,setup:setupPage}[h]||dash)();
 }
 addEventListener("hashchange",()=>$("#n")&&route());
 
@@ -167,6 +167,17 @@ function sitesPage(){
   ${role==="site_staff"?"":`<div class="card noprint" style="margin-top:14px"><h2>Add site</h2><div class="g"><label>Name<input id="sn"></label><label>Code (lowercase, digits, hyphens)<input id="sc"></label></div><p><button id="sa">Add site</button></p></div>`}`;
   S.sites.forEach(s=>new QRCode($("#q"+s.site_id),{text:sitePath(s.site_code),width:140,height:140}));
   const a=$("#sa");if(a)a.onclick=async()=>{const r=await Q(sb.from("sites").insert({name:$("#sn").value.trim(),site_code:$("#sc").value.trim()}));if(r!==null){msg("Site added.");boot()}};
+}
+
+/* ---------- Setup: suppliers and SKUs ---------- */
+function setupPage(){
+  const li=(a,f)=>a.length?`<table>${a.map(x=>`<tr><td>${H(f(x))}</td></tr>`).join("")}</table>`:'<p class="m">None yet.</p>';
+  $("#app").innerHTML=`<div class="two"><div class="card"><h2>Suppliers</h2>${li(S.sup,x=>x.name)}<div class="g" style="margin-top:10px"><label>Supplier name<input id="sn"></label><label>Notes (optional)<input id="snt"></label></div><p><button class="pri" id="sa">Add supplier</button></p></div>
+  <div class="card"><h2>SKUs</h2>${li(S.skus,x=>x.sku_code+" "+x.description)}<div class="g" style="margin-top:10px"><label>SKU code<input id="kc"></label><label>Description<input id="kd"></label><label>Unit of measure<input id="ku" value="each"></label></div><p><button class="pri" id="ka">Add SKU</button></p></div></div>`;
+  $("#sa").onclick=async()=>{const n=$("#sn").value.trim();if(!n)return msg("Enter the supplier name.",1);
+    const r=await Q(sb.from("suppliers").insert({name:n,notes:$("#snt").value.trim()||null}));if(r!==null){msg("Supplier added.");await boot();location.hash="setup"}};
+  $("#ka").onclick=async()=>{const c=$("#kc").value.trim(),d=$("#kd").value.trim();if(!c||!d)return msg("Enter the SKU code and a description.",1);
+    const r=await Q(sb.from("skus").insert({sku_code:c,description:d,unit_of_measure:$("#ku").value.trim()||"each"}));if(r!==null){msg("SKU added.");await boot();location.hash="setup"}};
 }
 
 /* ---------- Site page (opened from a QR code) ---------- */
