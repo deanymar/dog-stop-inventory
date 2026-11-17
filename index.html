@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Order Tracker</title>
+<style>
+:root{--bg:#f4f5f2;--card:#fff;--ink:#1d2830;--mute:#5d6b75;--line:#d9ddd8;--a:#0f6b6b;--w:#c98a16;--d:#b3382c}
+@media(prefers-color-scheme:dark){:root{--bg:#141a1e;--card:#1c2429;--ink:#e6ebe8;--mute:#98a6ae;--line:#2d383f;--a:#46b5b0;--w:#e0a640;--d:#e8776b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+header b{font-size:17px}nav{display:flex;gap:4px;flex:1;flex-wrap:wrap}
+nav a{padding:6px 10px;border-radius:6px;color:var(--ink);text-decoration:none}
+nav a:hover,nav a.on{background:var(--bg)}
+main{max-width:980px;margin:0 auto;padding:16px}
+h2{font-size:16px;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px}
+.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mute)}
+input,select,button{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);min-height:38px}
+button{cursor:pointer}button.pri{background:var(--a);border-color:var(--a);color:#fff;font-weight:600}
+:focus-visible{outline:2px solid var(--a);outline-offset:2px}
+.badge{background:var(--d);color:#fff;border-radius:10px;padding:0 7px;margin-left:6px;font-size:12px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.tiles div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px}
+.tiles span{display:block;font-size:12px;color:var(--mute)}.tiles b{font-size:20px}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.m{color:var(--mute);font-size:12px}
+svg{width:100%;height:auto}
+.row{display:grid;grid-template-columns:90px 1fr 80px;gap:8px;align-items:center;margin:6px 0;font-size:13px}
+.row i{display:block;height:14px;background:var(--a);border-radius:3px}
+.wk{display:flex;align-items:flex-end;gap:6px;height:120px;border-bottom:1px solid var(--line)}
+.wk div{flex:1;background:var(--line);border-radius:3px 3px 0 0;min-width:10px}.wk div.hot{background:var(--w)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+.al{border-left:4px solid var(--d)}
+#msg{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);padding:8px 14px;border-radius:6px;color:#fff;z-index:9}
+#msg:empty{display:none}#msg.ok{background:var(--a)}#msg.bad{background:var(--d)}
+.sites{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.sites .card{text-align:center;break-inside:avoid}.sites .q{display:flex;justify-content:center;margin:8px 0}
+@media print{header,.noprint{display:none}body{background:#fff}}
+</style>
+</head>
+<body>
+<header><b>Order Tracker</b><nav id="nav"></nav><a id="badge" href="#tasks" class="noprint" style="color:inherit;text-decoration:none">Tasks<span class="badge" id="n">0</span></a></header>
+<main id="app"></main>
+<div id="msg"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="config.js"></script>
+<script>
+const $=s=>document.querySelector(s),H=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_KEY);
+const S={sites:[],skus:[],sup:[],task:null,lines:[]};let role="none";
+const today=()=>new Date().toISOString().slice(0,10),money=n=>"$"+(+n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const opt=(a,v,l)=>a.map(x=>`<option value="${x[v]}">${H(typeof l==="function"?l(x):x[l])}</option>`).join("");
+const skuName=id=>{const k=S.skus.find(x=>x.sku_id==id);return k?k.sku_code:id};
+function msg(t,bad){const m=$("#msg");m.textContent=t;m.className=bad?"bad":"ok";setTimeout(()=>m.textContent="",6000)}
+async function Q(p){const{data,error}=await p;if(error){msg(error.message,1);return null}return data}
+
+async function boot(){
+  const{data:{session}}=await sb.auth.getSession();
+  if(!session)return login();
+  const p=await Q(sb.from("profiles").select("role").eq("user_id",session.user.id).maybeSingle());
+  role=p?p.role:"none";
+  const r=await Promise.all([Q(sb.from("sites").select("*").order("name")),Q(sb.from("skus").select("*").order("sku_code")),Q(sb.from("suppliers").select("*").order("name"))]);
+  S.sites=r[0]||[];S.skus=r[1]||[];S.sup=r[2]||[];
+  route();
+}
+function login(){
+  $("#nav").innerHTML="";
+  $("#app").innerHTML=`<div class="card" style="max-width:360px;margin:40px auto"><h2>Sign in</h2><div class="g" style="grid-template-columns:1fr"><label>Email<input id="em" type="email" autocomplete="username"></label><label>Password<input id="pw" type="password" autocomplete="current-password"></label><button class="pri" id="in">Sign in</button></div></div>`;
+  $("#in").onclick=async()=>{const{error}=await sb.auth.signInWithPassword({email:$("#em").value,password:$("#pw").value});error?msg(error.message,1):boot()};
+}
+async function badge(){const{count}=await sb.from("pending_tasks").select("*",{count:"exact",head:true}).eq("status","open");$("#n").textContent=count||0}
+function route(){
+  const h=location.hash.slice(1);
+  const staff=role==="site_staff";
+  $("#nav").innerHTML=(staff?[["sites","Sites"]]:[["dashboard","Dashboard"],["log","Log order"],["tasks","Pending tasks"],["sites","Sites"]]).map(x=>`<a href="#${x[0]}" class="${h===x[0]?"on":""}">${x[1]}</a>`).join("")+`<a href="#out" id="out">Sign out</a>`;
+  $("#out").onclick=async e=>{e.preventDefault();await sb.auth.signOut();location.hash="";boot()};
+  badge();
+  if(h.startsWith("site-"))return sitePage(h.slice(5));
+  if(staff)return sitesPage();
+  ({log:logPage,tasks:tasksPage,sites:sitesPage}[h]||dash)();
+}
+addEventListener("hashchange",()=>$("#n")&&route());
+
+/* ---------- Dashboard ---------- */
+function dash(){
+  const f=new Date(Date.now()-90*864e5).toISOString().slice(0,10);
+  $("#app").innerHTML=`<div class="bar"><select id="fs"><option value="">All SKUs</option>${opt(S.skus,"sku_id","sku_code")}</select><input type="date" id="ff" value="${f}"><input type="date" id="ft" value="${today()}"><button class="pri" id="go">Apply</button></div><div id="d">Loading…</div>`;
+  $("#go").onclick=draw;draw();
+}
+function line(vals,labels,fmt){
+  if(!vals.length)return'<p class="m">No orders in this range.</p>';
+  const w=320,h=110,mx=Math.max(...vals)||1,x=i=>10+i*(w-20)/Math.max(vals.length-1,1),y=v=>h-10-v/mx*(h-24);
+  return`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Line chart"><polyline fill="none" stroke="var(--a)" stroke-width="2" points="${vals.map((v,i)=>x(i)+","+y(v)).join(" ")}"/>${vals.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="var(--a)"><title>${labels[i]}: ${fmt(v)}</title></circle>`).join("")}</svg><div class="m">${labels[0]} to ${labels[labels.length-1]}. Highest: ${fmt(mx)}</div>`;
+}
+async function draw(){
+  const sku=$("#fs").value,f=$("#ff").value,t=$("#ft").value;
+  const r=await Promise.all([
+    Q(sb.from("orders").select("order_date,order_lines(sku_id,quantity_ordered,line_spend)").gte("order_date",f).lte("order_date",t)),
+    Q(sb.from("usage_events").select("sku_id,quantity_change,recorded_at").eq("event_type","use").gte("recorded_at",f).lte("recorded_at",t+"T23:59:59")),
+    Q(sb.from("v_lead_time_alerts").select("*"))]);
+  const lines=(r[0]||[]).flatMap(o=>o.order_lines.map(l=>({...l,d:o.order_date}))).filter(l=>!sku||l.sku_id==sku);
+  const M={},by={};
+  lines.forEach(l=>{const k=l.d.slice(0,7);(M[k]=M[k]||{u:0,s:0});M[k].u+=+l.quantity_ordered;M[k].s+=+l.line_spend;(by[l.sku_id]=by[l.sku_id]||{u:0,s:0});by[l.sku_id].u+=+l.quantity_ordered;by[l.sku_id].s+=+l.line_spend});
+  const ks=Object.keys(M).sort(),U=lines.reduce((a,l)=>a+ +l.quantity_ordered,0),SP=lines.reduce((a,l)=>a+ +l.line_spend,0);
+  const W={};
+  (r[1]||[]).filter(e=>!sku||e.sku_id==sku).forEach(e=>{const d=new Date(e.recorded_at);d.setDate(d.getDate()-(d.getDay()+6)%7);const k=d.toISOString().slice(0,10);W[k]=(W[k]||0)-e.quantity_change});
+  const wk=Object.keys(W).sort(),hot=wk.slice().sort((a,b)=>W[b]-W[a]).slice(0,3),wm=Math.max(...wk.map(k=>W[k]),1);
+  const al=r[2]||[],cols=al.length?Object.keys(al[0]):[];
+  $("#d").innerHTML=`<div class="tiles"><div><span>Total spend</span><b>${money(SP)}</b></div><div><span>Units ordered</span><b>${U.toLocaleString()}</b></div><div><span>Avg landed cost</span><b>${U?money(SP/U):"—"}</b></div><div><span>Open alerts</span><b>${al.length}</b></div></div>
+  <div class="two"><div class="card"><h2>Order units by month</h2>${line(ks.map(k=>M[k].u),ks,v=>v.toLocaleString())}</div><div class="card"><h2>Spend by month</h2>${line(ks.map(k=>M[k].s),ks,money)}</div></div>
+  <div class="two"><div class="card"><div class="bar" style="margin:0 0 6px;justify-content:space-between"><h2 style="margin:0">Top 5 SKUs</h2><span><button id="bs">Spend</button> <button id="bu">Units</button></span></div><div id="top"></div></div>
+  <div class="card"><h2>Weekly usage</h2>${wk.length?`<div class="wk">${wk.map(k=>`<div class="${hot.includes(k)?"hot":""}" style="height:${W[k]/wm*100}%" title="Week of ${k}: ${W[k]}"></div>`).join("")}</div><p class="m">Amber: the 3 heaviest weeks in this range. ${hot.map(k=>k+" ("+W[k]+")").join(", ")}</p>`:'<p class="m">No usage recorded in this range.</p>'}</div></div>
+  <div class="card al"><h2>Lead-time alerts</h2>${al.length?`<div style="overflow-x:auto"><table><tr>${cols.map(c=>`<th>${H(c)}</th>`).join("")}</tr>${al.map(a=>`<tr>${cols.map(c=>`<td>${H(a[c])}</td>`).join("")}</tr>`).join("")}</table></div>`:'<p class="m">No late orders.</p>'}</div>`;
+  const top=m=>{const e=Object.entries(by).sort((a,b)=>b[1][m]-a[1][m]).slice(0,5),mx=e.length?e[0][1][m]:1;$("#top").innerHTML=e.length?e.map(x=>`<div class="row"><span>${H(skuName(x[0]))}</span><i style="width:${x[1][m]/mx*100}%"></i><b>${m==="s"?money(x[1].s):x[1].u.toLocaleString()}</b></div>`).join(""):'<p class="m">No orders in this range.</p>'};
+  $("#bs").onclick=()=>top("s");$("#bu").onclick=()=>top("u");top("s");
+}
+
+/* ---------- Log order ---------- */
+function logPage(){
+  S.lines=[];const t=S.task;
+  $("#app").innerHTML=`<div class="card"><h2>Order</h2><div class="g"><label>Order number<input id="on" value="${H(t?t.reference:"")}"></label><label>Supplier<select id="su">${opt(S.sup,"supplier_id","name")}</select></label><label>Destination site<select id="si">${opt(S.sites,"site_id","name")}</select></label><label>Order date<input type="date" id="od" value="${today()}"></label></div></div>
+  <div class="card"><h2>Lines</h2><div class="g"><label>SKU<select id="sk">${opt(S.skus,"sku_id",k=>k.sku_code+" "+k.description)}</select></label><label>Quantity<input type="number" step="any" min="0" id="q"></label><label>Unit price<input type="number" step="any" min="0" id="p"></label><label>Unit freight<input type="number" step="any" min="0" id="fr" value="0"></label><label>Unit duty/tax<input type="number" step="any" min="0" id="du" value="0"></label><label>Unit other<input type="number" step="any" min="0" id="ot" value="0"></label></div>
+  <p>Landed unit cost <b id="lc">$0.00</b> &nbsp; Line total <b id="lt">$0.00</b></p><button id="al">Add line</button><div id="ll" style="margin-top:10px"></div></div><button class="pri" id="sv">Save order</button>`;
+  if(t){if(t.sku_id)$("#sk").value=t.sku_id;if(t.site_id)$("#si").value=t.site_id}
+  const v=i=>+$(i).value||0,calc=()=>{const c=v("#p")+v("#fr")+v("#du")+v("#ot");$("#lc").textContent=money(c);$("#lt").textContent=money(c*v("#q"))};
+  ["#q","#p","#fr","#du","#ot"].forEach(i=>$(i).oninput=calc);
+  const show=()=>$("#ll").innerHTML=S.lines.length?`<table><tr><th>SKU</th><th>Qty</th><th>Landed cost</th><th>Total</th></tr>${S.lines.map(l=>{const c=l.unit_price+l.unit_freight+l.unit_duty+l.unit_other;return`<tr><td>${H(skuName(l.sku_id))}</td><td>${l.quantity_ordered}</td><td>${money(c)}</td><td>${money(c*l.quantity_ordered)}</td></tr>`}).join("")}</table>`:"";
+  $("#al").onclick=()=>{
+    if(!(v("#q")>0)||$("#p").value==="")return msg("Enter a quantity and a unit price.",1);
+    if(S.lines.some(l=>l.sku_id==$("#sk").value))return msg("That SKU is already on this order.",1);
+    S.lines.push({sku_id:+$("#sk").value,quantity_ordered:v("#q"),unit_price:v("#p"),unit_freight:v("#fr"),unit_duty:v("#du"),unit_other:v("#ot")});
+    $("#q").value="";$("#p").value="";calc();show();
+  };
+  $("#sv").onclick=async()=>{
+    if(!$("#on").value.trim())return msg("Enter the order number.",1);
+    if(!S.lines.length)return msg("Add at least one line.",1);
+    const o=await Q(sb.from("orders").insert({order_number:$("#on").value.trim(),supplier_id:+$("#su").value,site_id:+$("#si").value,order_date:$("#od").value}).select().single());
+    if(!o)return;
+    const l=await Q(sb.from("order_lines").insert(S.lines.map(x=>({...x,order_id:o.order_id}))).select());
+    if(!l){await sb.from("orders").delete().eq("order_id",o.order_id);return}
+    if(S.task){await Q(sb.from("pending_tasks").update({status:"done",completed_order_id:o.order_id,completed_at:new Date().toISOString()}).eq("task_id",S.task.task_id));S.task=null}
+    msg("Order saved.");location.hash="tasks";
+  };
+}
+
+/* ---------- Pending tasks ---------- */
+async function tasksPage(){
+  const t=await Q(sb.from("pending_tasks").select("*").eq("status","open").order("created_at"))||[];
+  $("#app").innerHTML=`<div class="card"><h2>Open tasks</h2>${t.length?t.map(x=>`<div class="bar" style="align-items:center;margin:0 0 8px"><span style="flex:1">${H(x.task_type)}: ${H(x.reference||"no reference")}</span><button data-id="${x.task_id}" class="pri">Log order</button></div>`).join(""):'<p class="m">Nothing pending. Add a task when an order is placed outside the system.</p>'}</div>
+  <div class="card"><h2>Add task</h2><div class="g"><label>Order number or note<input id="tr"></label><label>SKU (optional)<select id="ts"><option value="">None</option>${opt(S.skus,"sku_id","sku_code")}</select></label><label>Site (optional)<select id="tl"><option value="">None</option>${opt(S.sites,"site_id","name")}</select></label></div><p><button id="ta">Add task</button></p></div>`;
+  document.querySelectorAll("[data-id]").forEach(b=>b.onclick=()=>{S.task=t.find(x=>x.task_id==b.dataset.id);location.hash="log"});
+  $("#ta").onclick=async()=>{if(!$("#tr").value.trim())return msg("Enter an order number or note.",1);
+    const r=await Q(sb.from("pending_tasks").insert({reference:$("#tr").value.trim(),sku_id:$("#ts").value||null,site_id:$("#tl").value||null,status:"open"}));
+    if(r!==null){msg("Task added.");route()}};
+}
+
+/* ---------- Sites and QR codes ---------- */
+function sitePath(c){return location.origin+location.pathname+"#site-"+c}
+function sitesPage(){
+  $("#app").innerHTML=`<div class="bar noprint"><button onclick="print()">Print labels</button></div><div class="sites">${S.sites.map(s=>`<div class="card"><b>${H(s.name)}</b><div class="q" id="q${s.site_id}"></div><div>Scan to record usage</div><div class="m">${H(s.site_code)}</div></div>`).join("")}</div>
+  ${role==="site_staff"?"":`<div class="card noprint" style="margin-top:14px"><h2>Add site</h2><div class="g"><label>Name<input id="sn"></label><label>Code (lowercase, digits, hyphens)<input id="sc"></label></div><p><button id="sa">Add site</button></p></div>`}`;
+  S.sites.forEach(s=>new QRCode($("#q"+s.site_id),{text:sitePath(s.site_code),width:140,height:140}));
+  const a=$("#sa");if(a)a.onclick=async()=>{const r=await Q(sb.from("sites").insert({name:$("#sn").value.trim(),site_code:$("#sc").value.trim()}));if(r!==null){msg("Site added.");boot()}};
+}
+
+/* ---------- Site page (opened from a QR code) ---------- */
+async function sitePage(code){
+  const s=S.sites.find(x=>x.site_code===code);
+  if(!s)return $("#app").innerHTML='<div class="card"><h2>Site not found</h2><p class="m">Check the code on the label, or ask a manager for access to this site.</p></div>';
+  const r=await Promise.all([
+    Q(sb.from("inventory_records").select("sku_id,quantity_received,orders!inner(site_id)").eq("orders.site_id",s.site_id)),
+    Q(sb.from("usage_events").select("sku_id,quantity_change").eq("site_id",s.site_id)),
+    Q(sb.from("orders").select("order_id,order_number,order_lines(sku_id)").eq("site_id",s.site_id).order("order_date",{ascending:false}).limit(50))]);
+  const st={};(r[0]||[]).forEach(x=>st[x.sku_id]=(st[x.sku_id]||0)+ +x.quantity_received);(r[1]||[]).forEach(x=>st[x.sku_id]=(st[x.sku_id]||0)+ +x.quantity_change);
+  const ids=Object.keys(st),od=r[2]||[];
+  $("#app").innerHTML=`<div class="card"><h2>${H(s.name)}</h2><p class="m">On hand at this site</p>${ids.length?`<table>${ids.map(k=>`<tr><td>${H(skuName(k))}</td><td style="text-align:right;${st[k]<0?"color:var(--d)":""}"><b>${st[k]}</b>${st[k]<0?" (below zero)":""}</td></tr>`).join("")}</table>`:'<p class="m">No stock recorded yet.</p>'}</div>
+  <div class="card"><h2>Record usage</h2><div class="g"><label>SKU<select id="us">${opt(S.skus,"sku_id","sku_code")}</select></label><label>Type<select id="ut"><option value="use">Use</option><option value="waste">Waste</option><option value="adjustment">Count adjustment (+ or −)</option></select></label><label>Quantity<input type="number" step="any" id="uq"></label><label>Note<input id="un"></label></div><p><button class="pri" id="ub">Save usage</button></p></div>
+  <div class="card"><h2>Receive delivery</h2><div class="g"><label>Order line<select id="ro">${od.flatMap(o=>o.order_lines.map(l=>`<option value="${o.order_id}|${l.sku_id}">${H(o.order_number)} · ${H(skuName(l.sku_id))}</option>`)).join("")}</select></label><label>Arrival date<input type="date" id="rd" value="${today()}"></label><label>Quantity received<input type="number" step="any" min="0" id="rq"></label></div><p><button class="pri" id="rb">Save delivery</button></p></div>`;
+  $("#ub").onclick=async()=>{let q=+$("#uq").value,t=$("#ut").value;if(!q)return msg("Enter a quantity.",1);if(t!=="adjustment")q=-Math.abs(q);
+    const x=await Q(sb.from("usage_events").insert({site_id:s.site_id,sku_id:+$("#us").value,event_type:t,quantity_change:q,note:$("#un").value||null}));if(x!==null){msg("Usage saved.");sitePage(code)}};
+  $("#rb").onclick=async()=>{const p=$("#ro").value.split("|");if(!p[0]||!(+$("#rq").value>0))return msg("Choose an order line and enter a quantity.",1);
+    const x=await Q(sb.from("inventory_records").insert({order_id:+p[0],sku_id:+p[1],arrival_date:$("#rd").value,quantity_received:+$("#rq").value}));if(x!==null){msg("Delivery saved.");sitePage(code)}};
+}
+boot();
+</script>
+</body>
+</html>
