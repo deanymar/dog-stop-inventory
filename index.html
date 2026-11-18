@@ -66,7 +66,7 @@ const tt=e=>{const el=e.target.closest&&e.target.closest("[data-t]");if(!el){tip
 function msg(t,bad){const m=$("#msg");m.textContent=t;m.className=bad?"bad":"ok";setTimeout(()=>m.textContent="",5000)}
 function nice(e,c){c=c||{};const m=e.message||"";
   if(e.code==="23505")return c.dup||"That already exists.";
-  if(e.code==="23514")return c.chk||"One of the values is not allowed. Please check what you typed.";
+  if(e.code==="23514"){if(!/violates check constraint/.test(m))return m;const r=/constraint "([^"]+)"/.exec(m);return c.chk||("That value is not allowed"+(r?" (rule: "+r[1]+")":"")+". Please check what you typed.")}
   if(e.code==="23503")return "That is linked to something that does not exist, or is still in use.";
   if(e.code==="23502")return "A required box was left empty.";
   if(/row-level security|permission denied/i.test(m))return "You do not have permission to do that.";
@@ -92,12 +92,12 @@ async function badge(){const{count}=await sb.from("pending_tasks").select("*",{c
 function route(){
   const h=location.hash.slice(1);
   const staff=role==="site_staff";
-  $("#nav").innerHTML=(staff?[["sites","Sites"]]:[["dashboard","Dashboard"],["log","Log order"],["tasks","Pending tasks"],["sites","Sites"],["setup","Setup"]]).map(x=>`<a href="#${x[0]}" class="${h===x[0]?"on":""}">${x[1]}</a>`).join("")+`<a href="#out" id="out">Sign out</a>`;
+  $("#nav").innerHTML=(staff?[["sites","Sites"]]:[["dashboard","Dashboard"],["log","Log order"],["history","Order history"],["tasks","Pending tasks"],["sites","Sites"],["setup","Setup"]]).map(x=>`<a href="#${x[0]}" class="${h===x[0]?"on":""}">${x[1]}</a>`).join("")+`<a href="#out" id="out">Sign out</a>`;
   $("#out").onclick=async e=>{e.preventDefault();await sb.auth.signOut();location.hash="";boot()};
   badge();
   if(h.startsWith("site-"))return sitePage(h.slice(5));
   if(staff)return sitesPage();
-  ({log:logPage,tasks:tasksPage,sites:sitesPage,setup:setupPage}[h]||dash)();
+  ({log:logPage,history:historyPage,tasks:tasksPage,sites:sitesPage,setup:setupPage}[h]||dash)();
 }
 addEventListener("hashchange",()=>$("#n")&&route());
 
@@ -175,11 +175,36 @@ function logPage(){
     if(!S.lines.length)return msg("Add at least one line.",1);
     const o=await Q(sb.from("orders").insert({order_number:nm,supplier_id:+$("#su").value,site_id:+$("#si").value,order_date:$("#od").value}).select().single(),{dup:"Order "+nm+" already exists for this supplier."});
     if(!o)return;
-    const l=await Q(sb.from("order_lines").insert(S.lines.map(x=>({...x,order_id:o.order_id}))).select());
+    const l=await Q(sb.from("order_lines").insert(S.lines.map(x=>({...x,order_id:o.order_id}))).select(),{chk:"Quantity must be more than 0 and costs cannot be negative."});
     if(!l){await sb.from("orders").delete().eq("order_id",o.order_id);return}
     if(S.task){await Q(sb.from("pending_tasks").update({status:"done",completed_order_id:o.order_id,completed_at:new Date().toISOString()}).eq("task_id",S.task.task_id));S.task=null}
     msg("Order saved.");if(hadTask)location.hash="tasks";else{logPage();badge()}
   };
+}
+
+/* ---------- Order history ---------- */
+async function historyPage(){
+  $("#app").innerHTML=I("Every order placed. Click an order to see its lines, costs and deliveries.")+`<div class="bar"><input id="hq" placeholder="Search order number"><select id="hs"><option value="">All suppliers</option>${opt(S.sup,"supplier_id","name")}</select><select id="hst"><option value="">Any status</option><option>Not received</option><option>Partly received</option><option>Received</option></select></div><div id="hl">Loading…</div>`;
+  const od=await Q(sb.from("orders").select("order_id,order_number,supplier_id,site_id,order_date,order_lines(sku_id,quantity_ordered,landed_unit_cost,line_spend)").order("order_date",{ascending:false}).limit(500))||[];
+  const ids=od.map(o=>o.order_id);
+  const inv=ids.length?(await Q(sb.from("inventory_records").select("order_id,sku_id,arrival_date,quantity_received").in("order_id",ids))||[]):[];
+  const R={},F={};
+  inv.forEach(r=>{const k=r.order_id+"|"+r.sku_id;R[k]=(R[k]||0)+ +r.quantity_received;if(!F[r.order_id]||r.arrival_date<F[r.order_id])F[r.order_id]=r.arrival_date});
+  const rows=od.map(o=>{
+    const tot=o.order_lines.reduce((a,l)=>a+ +l.line_spend,0),got=o.order_lines.map(l=>R[o.order_id+"|"+l.sku_id]||0);
+    const full=o.order_lines.length>0&&o.order_lines.every((l,i)=>got[i]>=+l.quantity_ordered);
+    return{o,tot,got,st:full?"Received":got.some(x=>x>0)?"Partly received":"Not received",fa:F[o.order_id]}});
+  const nm=(a,k,id,f)=>{const x=a.find(y=>y[k]==id);return x?x[f]:""};
+  const draw=()=>{
+    const q=$("#hq").value.trim().toLowerCase(),su=$("#hs").value,st=$("#hst").value;
+    const f=rows.filter(r=>(!q||String(r.o.order_number).toLowerCase().includes(q))&&(!su||r.o.supplier_id==su)&&(!st||r.st===st));
+    $("#hl").innerHTML=f.length?`<div class="card" style="padding:0;overflow-x:auto"><table><tr><th>Order number</th><th>Supplier</th><th>Site</th><th>Order date</th><th>Total</th><th>Status</th><th>Lead time</th></tr>${f.map(r=>{
+      const d=r.fa?Math.round((new Date(r.fa)-new Date(r.o.order_date))/864e5)+" days":"—";
+      const ln=r.o.order_lines.map((l,i)=>`<tr><td>${H(skuName(l.sku_id))}</td><td>${l.quantity_ordered}</td><td>${r.got[i]}</td><td>${money(l.landed_unit_cost)}</td><td>${money(l.line_spend)}</td></tr>`).join("");
+      return`<tr class="hr" data-id="${r.o.order_id}" style="cursor:pointer"><td><b>${H(r.o.order_number)}</b></td><td>${H(nm(S.sup,"supplier_id",r.o.supplier_id,"name"))}</td><td>${H(nm(S.sites,"site_id",r.o.site_id,"name"))}</td><td>${r.o.order_date}</td><td>${money(r.tot)}</td><td>${r.st}</td><td>${d}</td></tr><tr id="d${r.o.order_id}" style="display:none"><td colspan="7" style="background:var(--bg)"><table><tr><th>SKU</th><th>Ordered</th><th>Received</th><th>Landed unit cost</th><th>Line total</th></tr>${ln}</table></td></tr>`}).join("")}</table></div>`:'<p class="m">No orders match.</p>';
+    document.querySelectorAll(".hr").forEach(t=>t.onclick=()=>{const x=$("#d"+t.dataset.id);x.style.display=x.style.display==="none"?"table-row":"none"});
+  };
+  $("#hq").oninput=draw;$("#hs").onchange=draw;$("#hst").onchange=draw;draw();
 }
 
 /* ---------- Pending tasks ---------- */
@@ -218,7 +243,7 @@ function setupPage(){
 async function sitePage(code){
   const s=S.sites.find(x=>x.site_code===code);
   if(!s)return $("#app").innerHTML='<div class="card"><h2>Site not found</h2><p class="m">Check the code on the label, or ask a manager for access to this site.</p></div>';
-  const od=await Q(sb.from("orders").select("order_id,order_number,order_lines(sku_id)").eq("site_id",s.site_id).order("order_date",{ascending:false}))||[];
+  const od=await Q(sb.from("orders").select("order_id,order_number,order_date,order_lines(sku_id)").eq("site_id",s.site_id).order("order_date",{ascending:false}))||[];
   const ids=od.map(o=>o.order_id);
   const r=await Promise.all([ids.length?Q(sb.from("inventory_records").select("sku_id,quantity_received").in("order_id",ids)):[],Q(sb.from("usage_events").select("sku_id,quantity_change").eq("site_id",s.site_id))]);
   const st={};(r[0]||[]).forEach(x=>st[x.sku_id]=(st[x.sku_id]||0)+ +x.quantity_received);(r[1]||[]).forEach(x=>st[x.sku_id]=(st[x.sku_id]||0)+ +x.quantity_change);
@@ -229,7 +254,8 @@ async function sitePage(code){
   $("#ub").onclick=async()=>{let q=+$("#uq").value,t=$("#ut").value;if(!q)return msg("Enter a quantity.",1);if(t!=="adjustment")q=-Math.abs(q);
     const x=await W(sb.from("usage_events").insert({site_id:s.site_id,sku_id:+$("#us").value,event_type:t,quantity_change:q,note:$("#un").value||null}));if(x){msg("Usage saved.");sitePage(code)}};
   $("#rb").onclick=async()=>{const p=$("#ro").value.split("|");if(!p[0]||!(+$("#rq").value>0))return msg("Choose an order line and enter a quantity.",1);
-    const x=await W(sb.from("inventory_records").insert({order_id:+p[0],sku_id:+p[1],arrival_date:$("#rd").value,quantity_received:+$("#rq").value}));if(x){msg("Delivery saved.");sitePage(code)}};
+    const od1=od.find(x=>x.order_id==p[0]);if(od1&&$("#rd").value<od1.order_date)return msg("Arrival date cannot be earlier than the order date ("+od1.order_date+").",1);
+    const x=await W(sb.from("inventory_records").insert({order_id:+p[0],sku_id:+p[1],arrival_date:$("#rd").value,quantity_received:+$("#rq").value}),{chk:"Arrival date cannot be earlier than the order date, and the quantity must be more than 0."});if(x){msg("Delivery saved.");sitePage(code)}};
 }
 boot();
 </script>
