@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pending tasks · Order Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app"></main>
+<div id="msg"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+/* ---------- Pending tasks ---------- */
+async function tasksPage(){
+  const t=await Q(sb.from("pending_tasks").select("*").eq("status","open").order("created_at"))||[];
+  $("#app").innerHTML=I("Orders placed outside this system that still need to be logged. The number on the Tasks badge is how many are open. Click Log order on a task to enter it.")+`<div class="card"><h2>Open tasks</h2>${t.length?t.map(x=>`<div class="bar" style="align-items:center;margin:0 0 8px"><span style="flex:1">${H(String(x.task_type||"task").replace(/_/g," ").replace(/^./,c=>c.toUpperCase()))}: ${H(x.reference||"no reference")}</span><button data-id="${x.task_id}" class="pri">Log order</button><button class="xdel" data-k="task_id" data-i="${x.task_id}" data-n="task ${H(x.reference||"with no reference")}" title="Delete" aria-label="Delete">${TRASH}</button></div>`).join(""):'<p class="m">Nothing pending. Add a task when an order is placed outside the system.</p>'}</div>
+  <div class="card"><h2>Add task</h2><div class="g"><label>Order number or note<input id="tr"></label><label>SKU (optional)<select id="ts"><option value="">None</option>${opt(S.skus,"sku_id","sku_code")}</select></label><label>Site (optional)<select id="tl"><option value="">None</option>${opt(S.sites,"site_id","name")}</select></label></div><p><button id="ta">Add task</button></p></div>`;
+  document.querySelectorAll("[data-id]").forEach(b=>b.onclick=()=>{sessionStorage.setItem("task",JSON.stringify(t.find(x=>x.task_id==b.dataset.id)));location.href="log.html"});bindDel();
+  $("#ta").onclick=async()=>{if(!$("#tr").value.trim())return msg("Enter an order number or note.",1);
+    const r=await W(sb.from("pending_tasks").insert({reference:$("#tr").value.trim(),sku_id:$("#ts").value||null,site_id:$("#tl").value||null,status:"open"}));
+    if(r){msg("Task added.");refresh()}};
+}
+start("tasks",tasksPage);
+</script>
+</body>
+</html>

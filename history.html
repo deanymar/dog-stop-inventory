@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Order history · Order Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app"></main>
+<div id="msg"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+/* ---------- Order history ---------- */
+async function historyPage(){
+  $("#app").innerHTML=I("Every order placed. Click an order to see its lines, costs and deliveries.")+`<div class="bar"><input id="hq" placeholder="Search order number"><select id="hs"><option value="">All suppliers</option>${opt(S.sup,"supplier_id","name")}</select><select id="hst"><option value="">Any status</option><option>Not received</option><option>Partly received</option><option>Received</option></select><button id="hrs">Reset filters</button></div><div id="hl">Loading…</div>`;
+  const od=await Q(sb.from("orders").select("order_id,order_number,supplier_id,site_id,order_date,order_lines(sku_id,quantity_ordered,unit_price,unit_freight,unit_duty,unit_other,landed_unit_cost,line_spend)").order("order_date",{ascending:false}).limit(500))||[];
+  const ids=od.map(o=>o.order_id);
+  const inv=ids.length?(await Q(sb.from("inventory_records").select("order_id,sku_id,arrival_date,quantity_received").in("order_id",ids))||[]):[];
+  const R={},F={};
+  inv.forEach(r=>{const k=r.order_id+"|"+r.sku_id;R[k]=(R[k]||0)+ +r.quantity_received;if(!F[r.order_id]||r.arrival_date<F[r.order_id])F[r.order_id]=r.arrival_date});
+  const rows=od.map(o=>{
+    const tot=o.order_lines.reduce((a,l)=>a+ +l.line_spend,0),got=o.order_lines.map(l=>R[o.order_id+"|"+l.sku_id]||0);
+    const full=o.order_lines.length>0&&o.order_lines.every((l,i)=>got[i]>=+l.quantity_ordered);
+    return{o,tot,got,st:full?"Received":got.some(x=>x>0)?"Partly received":"Not received",fa:F[o.order_id]}});
+  const nm=(a,k,id,f)=>{const x=a.find(y=>y[k]==id);return x?x[f]:""};
+  const bindEdit=()=>document.querySelectorAll(".ed").forEach(b=>b.onclick=e=>{
+    e.stopPropagation();const oid=b.dataset.o,sid=b.dataset.s,tr=b.closest("tr");
+    const o=od.find(x=>x.order_id==oid),l=o.order_lines.find(x=>x.sku_id==sid),got=R[oid+"|"+sid]||0;
+    const inp=(c,val)=>`<td><input type="number" step="any" min="0" class="${c}" value="${val}" style="width:84px"></td>`;
+    tr.innerHTML=`<td>${H(skuName(sid))}</td>${inp("e-q",l.quantity_ordered)}<td>${got}</td>${inp("e-p",l.unit_price)}${inp("e-f",l.unit_freight)}${inp("e-d",l.unit_duty)}${inp("e-o",l.unit_other)}<td colspan="2" class="m">Recalculated on save</td><td style="white-space:nowrap"><button class="pri" id="es">Save</button> <button id="ec">Cancel</button></td>`;
+    tr.dataset.enter="#es";const g=c=>+tr.querySelector(c).value;
+    tr.querySelector("#ec").onclick=e2=>{e2.stopPropagation();draw()};
+    tr.querySelector("#es").onclick=async e2=>{e2.stopPropagation();const q=g(".e-q");
+      if(!(q>0))return msg("Quantity must be more than 0.",1);
+      if(q<got)return msg("Quantity cannot be less than the "+got+" already received.",1);
+      const ok=await D(sb.from("order_lines").update({quantity_ordered:q,unit_price:g(".e-p"),unit_freight:g(".e-f"),unit_duty:g(".e-d"),unit_other:g(".e-o")}).eq("order_id",oid).eq("sku_id",sid),{chk:"Quantity must be more than 0 and costs cannot be negative."},"Nothing was changed. You may not have permission to edit this.");
+      if(ok){msg("Line updated.");historyPage()}};
+  });
+  const draw=()=>{
+    const q=$("#hq").value.trim().toLowerCase(),su=$("#hs").value,st=$("#hst").value;
+    const f=rows.filter(r=>(!q||String(r.o.order_number).toLowerCase().includes(q))&&(!su||r.o.supplier_id==su)&&(!st||r.st===st));
+    $("#hl").innerHTML=f.length?`<div class="card" style="padding:0;overflow-x:auto"><table><tr><th>Order number</th><th>Supplier</th><th>Site</th><th>Order date</th><th>Total</th><th>Status</th><th>Lead time</th><th></th></tr>${f.map(r=>{
+      const d=r.fa?Math.round((new Date(r.fa)-new Date(r.o.order_date))/864e5)+" days":"—";
+      const ln=r.o.order_lines.map((l,i)=>`<tr><td>${H(skuName(l.sku_id))}</td><td>${l.quantity_ordered}</td><td>${r.got[i]}</td><td>${money(l.unit_price)}</td><td>${money(l.unit_freight)}</td><td>${money(l.unit_duty)}</td><td>${money(l.unit_other)}</td><td>${money(l.landed_unit_cost)}</td><td>${money(l.line_spend)}</td><td><button class="ed" data-o="${r.o.order_id}" data-s="${l.sku_id}" title="Edit line" aria-label="Edit line">${EDIT}</button></td></tr>`).join("");
+      return`<tr class="hr" data-id="${r.o.order_id}" style="cursor:pointer"><td><b>${H(r.o.order_number)}</b></td><td>${H(nm(S.sup,"supplier_id",r.o.supplier_id,"name"))}</td><td>${H(nm(S.sites,"site_id",r.o.site_id,"name"))}</td><td>${r.o.order_date}</td><td>${money(r.tot)}</td><td>${r.st}</td><td>${d}</td><td><button class="xdel" data-k="order_id" data-i="${r.o.order_id}" data-n="order ${H(r.o.order_number)}" data-x="This also deletes its ${r.o.order_lines.length} line(s) and ${inv.filter(z=>z.order_id==r.o.order_id).length} delivery record(s). This cannot be undone." title="Delete order" aria-label="Delete order">${TRASH}</button></td></tr><tr id="d${r.o.order_id}" style="display:none"><td colspan="8" style="background:var(--bg)"><table><tr><th>SKU</th><th>Ordered</th><th>Received</th><th>Unit price</th><th>Freight</th><th>Duty/tax</th><th>Other</th><th>Landed cost</th><th>Line total</th><th></th></tr>${ln}</table></td></tr>`}).join("")}</table></div>`:'<p class="m">No orders match.</p>';
+    document.querySelectorAll(".hr").forEach(t=>t.onclick=()=>{const x=$("#d"+t.dataset.id);x.style.display=x.style.display==="none"?"table-row":"none"});bindDel();bindEdit();
+  };
+  $("#hrs").onclick=()=>{$("#hq").value="";$("#hs").value="";$("#hst").value="";draw()};
+  $("#hq").oninput=draw;$("#hs").onchange=draw;$("#hst").onchange=draw;draw();
+}
+start("history",historyPage);
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Account · Order Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app"></main>
+<div id="msg"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+function accountPage(){$("#app").innerHTML=I("Your account.")+`<div class="card"><h2>${H(S.me.name||"Account")}</h2><p class="m">User ID: ${H(S.me.id)}</p><p>Account settings, such as your name and password, are coming soon.</p></div>`}
+start("account",accountPage);
+</script>
+</body>
+</html>

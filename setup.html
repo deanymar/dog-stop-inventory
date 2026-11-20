@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Setup · Order Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app"></main>
+<div id="msg"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+/* ---------- Setup: suppliers and SKUs ---------- */
+function setupPage(){
+  const li=(a,f,id,lab)=>a.length?`<table>${a.map(x=>`<tr><td>${H(f(x))}</td><td style="width:36px"><button class="xdel" data-k="${id}" data-i="${x[id]}" data-n="${H(lab+" "+f(x))}" title="Delete" aria-label="Delete">${TRASH}</button></td></tr>`).join("")}</table>`:'<p class="m">None yet.</p>';
+  $("#app").innerHTML=I("Add the suppliers and products that appear on your orders. Do this once, then pick them from the Log order form.")+`<div class="two"><div class="card"><h2>Suppliers</h2>${li(S.sup,x=>x.name,"supplier_id","supplier")}<div class="g" style="margin-top:10px"><label>Supplier name<input id="sn"></label><label>Notes (optional)<input id="snt"></label></div><p><button class="pri" id="sa" disabled>Add supplier</button></p></div>
+  <div class="card"><h2>SKUs</h2>${li(S.skus,x=>x.sku_code+" "+x.description,"sku_id","SKU")}<div class="g" style="margin-top:10px"><label>SKU code<input id="kc"></label><label>Description<input id="kd"></label><label>Unit of measure<select id="ku"><option>each</option><option>pack</option><option>box</option><option>case</option><option>bag</option><option>bottle</option><option>roll</option><option>pounds</option><option>ounces</option><option>gallons</option><option>liters</option><option>inches</option><option>feet</option></select></label></div><p><button class="pri" id="ka" disabled>Add SKU</button></p></div></div>`;
+  bindDel();
+  const on=(ids,b)=>{const f=()=>{$(b).disabled=!ids.every(i=>$(i).value.trim())};ids.forEach(i=>$(i).oninput=f)};on(["#sn"],"#sa");on(["#kc","#kd"],"#ka");
+  $("#sa").onclick=async()=>{const n=$("#sn").value.trim();if(!n)return msg("Enter the supplier name.",1);
+    const r=await W(sb.from("suppliers").insert({name:n,notes:$("#snt").value.trim()||null}),{dup:n+" was already added."});if(r){msg("Supplier added.");await refresh()}};
+  $("#ka").onclick=async()=>{const c=$("#kc").value.trim(),d=$("#kd").value.trim();if(!c||!d)return msg("Enter the SKU code and a description.",1);
+    const r=await W(sb.from("skus").insert({sku_code:c,description:d,unit_of_measure:$("#ku").value}),{dup:c+" was already added."});if(r){msg("SKU added.");await refresh()}};
+}
+start("setup",setupPage);
+</script>
+</body>
+</html>

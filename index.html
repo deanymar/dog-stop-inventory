@@ -3,116 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Order Tracker</title>
-<style>
-:root{--bg:#f4f5f2;--card:#fff;--ink:#1d2830;--mute:#5d6b75;--line:#d9ddd8;--a:#0f6b6b;--w:#c98a16;--d:#b3382c}
-@media(prefers-color-scheme:dark){:root{--bg:#141a1e;--card:#1c2429;--ink:#e6ebe8;--mute:#98a6ae;--line:#2d383f;--a:#46b5b0;--w:#e0a640;--d:#e8776b}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-header{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
-header b{font-size:17px}nav{display:flex;gap:4px;flex:1;flex-wrap:wrap}
-nav a{padding:6px 10px;border-radius:6px;color:var(--ink);text-decoration:none}
-nav a:hover,nav a.on{background:var(--bg)}
-main{max-width:980px;margin:0 auto;padding:16px}
-h2{font-size:16px;margin:0 0 10px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px}
-.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
-.bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
-label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mute)}
-input,select,button{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);min-height:38px}
-button{cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}button.pri{background:var(--a);border-color:var(--a);color:#fff;font-weight:600}
-:focus-visible{outline:2px solid var(--a);outline-offset:2px}
-.badge{background:var(--d);color:#fff;border-radius:10px;padding:0 7px;margin-left:6px;font-size:12px}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
-.tiles div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px}
-.tiles span{display:block;font-size:12px;color:var(--mute)}.tiles b{font-size:20px}
-.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
-.m{color:var(--mute);font-size:12px}
-svg{width:100%;height:auto}
-.row{display:grid;grid-template-columns:90px 1fr 80px;gap:8px;align-items:center;margin:6px 0;font-size:13px}
-.row i{display:block;height:14px;background:var(--a);border-radius:3px}
-.wk{display:flex;align-items:flex-end;gap:6px;height:120px;border-bottom:1px solid var(--line)}
-.wk div{flex:1;background:var(--line);border-radius:3px 3px 0 0;min-width:10px}.wk div.hot{background:var(--w)}
-table{border-collapse:collapse;width:100%;font-size:13px}
-th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
-.al{border-left:4px solid var(--d)}
-#msg{position:fixed;top:64px;left:50%;transform:translateX(-50%);padding:8px 14px;border-radius:6px;color:#fff;z-index:9}
-#msg:empty{display:none}#msg.ok{background:var(--a)}#msg.bad{background:var(--d)}
-.sites{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
-.sites .card{text-align:center;break-inside:avoid}.sites .q{display:flex;justify-content:center;margin:8px 0}
-#tip{position:fixed;display:none;background:var(--ink);color:var(--bg);padding:4px 8px;border-radius:6px;font-size:12px;pointer-events:none;z-index:20}
-.hit{cursor:pointer}.ed,.ed2{padding:2px 6px;min-height:0;border:none;background:none;color:var(--a)}.del,.xdel{padding:2px 6px;min-height:0;border:none;background:none;color:var(--d)}
-@media print{header,.noprint{display:none}body{background:#fff}}
-</style>
+<title>Dashboard · Order Tracker</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header><b>Order Tracker</b><nav id="nav"></nav><a id="badge" href="#tasks" class="noprint" style="color:inherit;text-decoration:none">Tasks<span class="badge" id="n">0</span></a></header>
 <main id="app"></main>
 <div id="msg"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="config.js"></script>
+<script src="app.js"></script>
 <script>
-const $=s=>document.querySelector(s),H=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_KEY);
-const S={sites:[],skus:[],sup:[],task:null,lines:[]};let role="none";
-const today=()=>new Date().toISOString().slice(0,10),money=n=>"$"+(+n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-const opt=(a,v,l)=>a.map(x=>`<option value="${x[v]}">${H(typeof l==="function"?l(x):x[l])}</option>`).join("");
-const skuName=id=>{const k=S.skus.find(x=>x.sku_id==id);return k?k.sku_code:id};
-const I=t=>`<p class="m" style="margin:0 0 12px">${t}</p>`;
-const tip=document.createElement("div");tip.id="tip";document.body.appendChild(tip);
-const tt=e=>{const el=e.target.closest&&e.target.closest("[data-t]");if(!el){tip.style.display="none";return}tip.textContent=el.dataset.t;tip.style.display="block";tip.style.left=Math.max(4,Math.min(e.clientX+12,innerWidth-tip.offsetWidth-8))+"px";tip.style.top=Math.max(4,e.clientY-36)+"px"};
-["mouseover","mousemove","click"].forEach(v=>document.addEventListener(v,tt));
-async function D(q,c,z){const{data,error}=await q.select();if(error){msg(nice(error,c),1);return false}if(!data||!data.length){msg(z||"Nothing was deleted. You may not have permission to delete this.",1);return false}return true}
-function bindDel(){document.querySelectorAll(".xdel").forEach(b=>b.onclick=async e=>{
-  e.stopPropagation();const k=b.dataset.k,id=+b.dataset.i,n=b.dataset.n;
-  if(!confirm("Are you sure you want to delete "+n+"?"+(b.dataset.x?"\n\n"+b.dataset.x:"")))return;
-  const FK={fk:"It can't be deleted because it is used by orders, deliveries or usage. Remove those first."};let ok=false;
-  if(k==="order_id"){
-    const a=await sb.from("inventory_records").delete().eq("order_id",id);if(a.error){msg(nice(a.error,FK),1);return}
-    const c=await sb.from("order_lines").delete().eq("order_id",id);if(c.error){msg(nice(c.error,FK),1);return}
-    ok=await D(sb.from("orders").delete().eq("order_id",id),FK)
-  }else{const tb={supplier_id:"suppliers",sku_id:"skus",site_id:"sites",task_id:"pending_tasks",inventory_id:"inventory_records",usage_id:"usage_events"}[k];ok=await D(sb.from(tb).delete().eq(k,id),FK)}
-  if(ok){msg(n+" deleted.");await boot()}
-})}
-function msg(t,bad){const m=$("#msg");m.textContent=t;m.className=bad?"bad":"ok";setTimeout(()=>m.textContent="",5000)}
-function nice(e,c){c=c||{};const m=e.message||"";
-  if(e.code==="23505")return c.dup||"That already exists.";
-  if(e.code==="23514"){if(!/violates check constraint/.test(m))return m;const r=/constraint "([^"]+)"/.exec(m);return c.chk||("That value is not allowed"+(r?" (rule: "+r[1]+")":"")+". Please check what you typed.")}
-  if(e.code==="23503")return c.fk||"That is linked to something that does not exist, or is still in use.";
-  if(e.code==="23502")return "A required box was left empty.";
-  if(/row-level security|permission denied/i.test(m))return "You do not have permission to do that.";
-  return m}
-async function Q(p,c){const{data,error}=await p;if(error){msg(nice(error,c),1);return null}return data}
-async function W(p,c){const{error}=await p;if(error){msg(nice(error,c),1);return false}return true}
-
-async function boot(){
-  const{data:{session}}=await sb.auth.getSession();
-  if(!session)return login();
-  const p=await Q(sb.from("profiles").select("role").eq("user_id",session.user.id).maybeSingle());
-  role=p?p.role:"none";
-  const r=await Promise.all([Q(sb.from("sites").select("*").order("name")),Q(sb.from("skus").select("*").order("sku_code")),Q(sb.from("suppliers").select("*").order("name"))]);
-  S.sites=r[0]||[];S.skus=r[1]||[];S.sup=r[2]||[];
-  route();
-}
-function login(){
-  $("#nav").innerHTML="";
-  $("#app").innerHTML=`<div class="card" style="max-width:360px;margin:40px auto"><h2>Sign in</h2><div class="g" style="grid-template-columns:1fr"><label>Email<input id="em" type="email" autocomplete="username"></label><label>Password<input id="pw" type="password" autocomplete="current-password"></label><button class="pri" id="in">Sign in</button></div></div>`;
-  $("#in").onclick=async()=>{const{error}=await sb.auth.signInWithPassword({email:$("#em").value,password:$("#pw").value});error?msg(error.message,1):boot()};
-}
-async function badge(){const{count}=await sb.from("pending_tasks").select("*",{count:"exact",head:true}).eq("status","open");$("#n").textContent=count||0}
-function route(){
-  const h=location.hash.slice(1);
-  const staff=role==="site_staff";
-  $("#nav").innerHTML=(staff?[["sites","Sites"]]:[["dashboard","Dashboard"],["log","Log order"],["history","Order history"],["tasks","Pending tasks"],["sites","Sites"],["setup","Setup"]]).map(x=>`<a href="#${x[0]}" class="${h===x[0]?"on":""}">${x[1]}</a>`).join("")+`<a href="#out" id="out">Sign out</a>`;
-  $("#out").onclick=async e=>{e.preventDefault();await sb.auth.signOut();location.hash="";boot()};
-  badge();
-  if(h.startsWith("site-"))return sitePage(h.slice(5));
-  if(staff)return sitesPage();
-  ({log:logPage,history:historyPage,tasks:tasksPage,sites:sitesPage,setup:setupPage}[h]||dash)();
-}
-addEventListener("hashchange",()=>$("#n")&&route());
-
 /* ---------- Dashboard ---------- */
 function dash(){
   const f=new Date(Date.now()-90*864e5).toISOString().slice(0,10);
@@ -121,8 +21,8 @@ function dash(){
 }
 function line(vals,labels,fmt){
   if(!vals.length)return'<p class="m">No orders in this range.</p>';
-  const w=320,h=110,mx=Math.max(...vals)||1,x=i=>10+i*(w-20)/Math.max(vals.length-1,1),y=v=>h-10-v/mx*(h-24);
-  return`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Line chart"><polyline fill="none" stroke="var(--a)" stroke-width="2" points="${vals.map((v,i)=>x(i)+","+y(v)).join(" ")}"/>${vals.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="var(--a)"/><circle class="hit" data-t="${labels[i]}: ${fmt(v)}" cx="${x(i)}" cy="${y(v)}" r="12" fill="transparent"/>`).join("")}</svg><div class="m">${labels[0]} to ${labels[labels.length-1]}. Highest: ${fmt(mx)}</div>`;
+  const w=320,h=110,mx=Math.max(...vals)||1,x=i=>vals.length<2?w/2:10+i*(w-20)/(vals.length-1),y=v=>h-10-v/mx*(h-24);
+  return`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Line chart"><polyline fill="none" stroke="var(--a)" stroke-width="2" points="${vals.map((v,i)=>x(i)+","+y(v)).join(" ")}"/>${vals.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="var(--a)"/><circle class="hit" data-t="${labels[i]}: ${fmt(v)}" cx="${x(i)}" cy="${y(v)}" r="12" fill="transparent"/>`).join("")}${vals.length<=6?vals.map((v,i)=>`<text x="${x(i)}" y="${y(v)-7}" text-anchor="middle" font-size="9" fill="currentColor">${fmt(v)}</text><text x="${x(i)}" y="${h-1}" text-anchor="middle" font-size="9" fill="currentColor" opacity=".6">${labels[i]}</text>`).join(""):""}</svg><div class="m">${labels[0]} to ${labels[labels.length-1]}. Highest: ${fmt(mx)}</div>`;
 }
 async function draw(){
   const sku=$("#fs").value,f=$("#ff").value,t=$("#ft").value;
@@ -137,158 +37,18 @@ async function draw(){
   const W={};
   (r[1]||[]).filter(e=>!sku||e.sku_id==sku).forEach(e=>{const d=new Date(e.created_at);d.setDate(d.getDate()-(d.getDay()+6)%7);const k=d.toISOString().slice(0,10);W[k]=(W[k]||0)-e.quantity_change});
   const wk=Object.keys(W).sort(),hot=wk.slice().sort((a,b)=>W[b]-W[a]).slice(0,3),wm=Math.max(...wk.map(k=>W[k]),1);
-  const al=r[2]||[],cols=al.length?Object.keys(al[0]):[];
+  const al=r[2]||[];let cols=al.length?Object.keys(al[0]).filter(c=>!/_id$/.test(c)):[];if(al.length&&!cols.length)cols=Object.keys(al[0]);
+  const fv=(c,v)=>{if(v===null||v===undefined)return"";if(typeof v==="number"&&!Number.isInteger(v)||/^-?\d+\.\d{3,}$/.test(String(v)))return (+v).toFixed(1);if(c==="alert_status")return String(v).replace(/^./,x=>x.toUpperCase());return v};
+  const hd=c=>c.replace(/_/g," ").replace(/^./,x=>x.toUpperCase());
   $("#d").innerHTML=`<div class="tiles"><div><span>Total spend</span><b>${money(SP)}</b></div><div><span>Units ordered</span><b>${U.toLocaleString()}</b></div><div><span>Avg landed cost</span><b>${U?money(SP/U):"—"}</b></div><div><span>Open alerts</span><b>${al.length}</b></div></div>
   <div class="two"><div class="card"><h2>Order units by month</h2>${line(ks.map(k=>M[k].u),ks,v=>v.toLocaleString())}</div><div class="card"><h2>Spend by month</h2>${line(ks.map(k=>M[k].s),ks,money)}</div></div>
   <div class="two"><div class="card"><div class="bar" style="margin:0 0 6px;justify-content:space-between"><h2 style="margin:0">Top 5 SKUs</h2><span><button id="bs">Spend</button> <button id="bu">Units</button></span></div><div id="top"></div></div>
   <div class="card"><h2>Weekly usage</h2>${wk.length?`<div class="wk">${wk.map(k=>`<div class="${hot.includes(k)?"hot":""}" style="height:${W[k]/wm*100}%" data-t="Week of ${k}: ${W[k]}"></div>`).join("")}</div><p class="m">Amber: the 3 heaviest weeks in this range. ${hot.map(k=>k+" ("+W[k]+")").join(", ")}</p>`:'<p class="m">No usage recorded in this range.</p>'}</div></div>
-  <div class="card al"><h2>Lead-time alerts</h2>${al.length?`<div style="overflow-x:auto"><table><tr>${cols.map(c=>`<th>${H(c)}</th>`).join("")}</tr>${al.map(a=>`<tr>${cols.map(c=>`<td>${H(a[c])}</td>`).join("")}</tr>`).join("")}</table></div>`:'<p class="m">No late orders.</p>'}</div>`;
+  <div class="card al"><h2>Lead-time alerts</h2>${al.length?`<div style="overflow-x:auto"><table><tr>${cols.map(c=>`<th>${H(hd(c))}</th>`).join("")}</tr>${al.map(a=>`<tr>${cols.map(c=>`<td>${H(fv(c,a[c]))}</td>`).join("")}</tr>`).join("")}</table></div>`:'<p class="m">No late orders.</p>'}</div>`;
   const top=m=>{const e=Object.entries(by).sort((a,b)=>b[1][m]-a[1][m]).slice(0,5),mx=e.length?e[0][1][m]:1;$("#top").innerHTML=e.length?e.map(x=>`<div class="row"><span>${H(skuName(x[0]))}</span><i style="width:${x[1][m]/mx*100}%"></i><b>${m==="s"?money(x[1].s):x[1].u.toLocaleString()}</b></div>`).join(""):'<p class="m">No orders in this range.</p>'};
   $("#bs").onclick=()=>top("s");$("#bu").onclick=()=>top("u");top("s");
 }
-
-/* ---------- Log order ---------- */
-const UNITS=["each","pack","box","case","bag","bottle","roll","pounds","ounces","gallons","liters","inches","feet"];
-const EDIT='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4zM13 7l4 4"/></svg>';
-const TRASH='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
-function logPage(){
-  S.lines=[];const t=S.task,hadTask=!!t;
-  $("#app").innerHTML=I("Record an order you placed with a supplier. Enter the order details, add one line for each product, then save. Deliveries are recorded later on the site page.")+`<div class="card"><h2>Order</h2><div class="g"><label>Order number (from supplier)<input id="on" value="${H(t?t.reference:"")}"></label><label>Supplier<select id="su"></select></label><label>Destination site<select id="si">${opt(S.sites,"site_id","name")}</select></label><label>Order date<input type="date" id="od" value="${today()}"></label></div><div id="ns" class="g" style="display:none;margin-top:10px"><label>New supplier name<input id="nsn"></label><div style="display:flex;align-items:flex-end"><button id="nsa" disabled>Add supplier</button></div></div></div>
-  <div class="card"><h2>Lines</h2><div class="g"><label>SKU<select id="sk"></select></label><label>Quantity<input type="number" step="any" min="0" id="q"></label><label>Unit price<input type="number" step="any" min="0" id="p"></label><label>Unit freight<input type="number" step="any" min="0" id="fr" value="0"></label><label>Unit duty/tax<input type="number" step="any" min="0" id="du" value="0"></label><label>Unit other<input type="number" step="any" min="0" id="ot" value="0"></label></div>
-  <div id="nk" class="g" style="display:none;margin-top:10px"><label>New SKU code<input id="nkc"></label><label>Description<input id="nkd"></label><label>Unit of measure<select id="nku">${UNITS.map(u=>`<option>${u}</option>`).join("")}</select></label><div style="display:flex;align-items:flex-end"><button id="nka" disabled>Add SKU</button></div></div>
-  <p>Landed unit cost <b id="lc">$0.00</b> &nbsp; Line total <b id="lt">$0.00</b></p><button id="al">Add line</button><div id="ll" style="margin-top:10px"></div></div><button class="pri" id="sv">Save order</button>`;
-  const rs=(id,arr,v,l,label,keep)=>{const el=$(id);el.innerHTML=opt(arr,v,l)+`<option value="__new">+ Add new ${label}…</option>`;if(keep)el.value=keep};
-  const sw=()=>{$("#ns").style.display=$("#su").value==="__new"?"grid":"none";$("#nk").style.display=$("#sk").value==="__new"?"grid":"none"};
-  const skl=k=>k.sku_code+" "+k.description;
-  rs("#su",S.sup,"supplier_id","name","supplier");rs("#sk",S.skus,"sku_id",skl,"SKU");
-  if(t){if(t.sku_id)$("#sk").value=t.sku_id;if(t.site_id)$("#si").value=t.site_id}
-  $("#su").onchange=sw;$("#sk").onchange=sw;sw();
-  const en=(ids,b)=>{const f=()=>{$(b).disabled=!ids.every(i=>$(i).value.trim())};ids.forEach(i=>$(i).oninput=f)};
-  en(["#nsn"],"#nsa");en(["#nkc","#nkd"],"#nka");
-  $("#nsa").onclick=async()=>{const n=$("#nsn").value.trim();const r=await Q(sb.from("suppliers").insert({name:n}).select().single(),{dup:n+" was already added."});
-    if(r){S.sup.push(r);rs("#su",S.sup,"supplier_id","name","supplier",r.supplier_id);$("#nsn").value="";$("#nsa").disabled=true;sw();msg("Supplier added.")}};
-  $("#nka").onclick=async()=>{const c=$("#nkc").value.trim(),d=$("#nkd").value.trim();const r=await Q(sb.from("skus").insert({sku_code:c,description:d,unit_of_measure:$("#nku").value}).select().single(),{dup:c+" was already added."});
-    if(r){S.skus.push(r);rs("#sk",S.skus,"sku_id",skl,"SKU",r.sku_id);$("#nkc").value="";$("#nkd").value="";$("#nka").disabled=true;sw();msg("SKU added.")}};
-  const v=i=>+$(i).value||0,calc=()=>{const c=v("#p")+v("#fr")+v("#du")+v("#ot");$("#lc").textContent=money(c);$("#lt").textContent=money(c*v("#q"))};
-  ["#q","#p","#fr","#du","#ot"].forEach(i=>$(i).oninput=calc);
-  const show=()=>{$("#ll").innerHTML=S.lines.length?`<table><tr><th>SKU</th><th>Qty</th><th>Landed cost</th><th>Total</th><th></th></tr>${S.lines.map((l,i)=>{const c=l.unit_price+l.unit_freight+l.unit_duty+l.unit_other;return`<tr><td>${H(skuName(l.sku_id))}</td><td>${l.quantity_ordered}</td><td>${money(c)}</td><td>${money(c*l.quantity_ordered)}</td><td style="white-space:nowrap"><button class="ed2" data-i="${i}" title="Edit line" aria-label="Edit line">${EDIT}</button><button class="del" data-i="${i}" title="Remove line" aria-label="Remove line">${TRASH}</button></td></tr>`}).join("")}</table>`:"";
-    document.querySelectorAll(".ed2").forEach(b=>b.onclick=()=>{const l=S.lines[+b.dataset.i];S.lines.splice(+b.dataset.i,1);$("#sk").value=l.sku_id;sw();$("#q").value=l.quantity_ordered;$("#p").value=l.unit_price;$("#fr").value=l.unit_freight;$("#du").value=l.unit_duty;$("#ot").value=l.unit_other;calc();show();$("#q").focus()});
-    document.querySelectorAll(".del").forEach(b=>b.onclick=()=>{if(confirm("Are you sure you want to remove this line?")){S.lines.splice(+b.dataset.i,1);show()}})};
-  $("#al").onclick=()=>{
-    if($("#sk").value==="__new"||!$("#sk").value)return msg("Choose a SKU, or add the new one first.",1);
-    if(!(v("#q")>0)||$("#p").value==="")return msg("Enter a quantity and a unit price.",1);
-    if(S.lines.some(l=>l.sku_id==$("#sk").value))return msg("That SKU is already on this order.",1);
-    S.lines.push({sku_id:+$("#sk").value,quantity_ordered:v("#q"),unit_price:v("#p"),unit_freight:v("#fr"),unit_duty:v("#du"),unit_other:v("#ot")});
-    $("#q").value="";$("#p").value="";calc();show();
-  };
-  $("#sv").onclick=async()=>{
-    const nm=$("#on").value.trim();
-    if(!nm)return msg("Enter the order number from the supplier.",1);
-    if(!$("#su").value||$("#su").value==="__new")return msg("Choose a supplier, or add the new one first.",1);
-    if(!$("#si").value)return msg("Choose a destination site. Add one on the Sites page first if there are none.",1);
-    if(!S.lines.length)return msg("Add at least one line.",1);
-    $("#sv").disabled=true;const o=await Q(sb.from("orders").insert({order_number:nm,supplier_id:+$("#su").value,site_id:+$("#si").value,order_date:$("#od").value}).select().single(),{dup:"Order "+nm+" already exists for this supplier."});
-    if(!o){$("#sv").disabled=false;return}
-    const l=await Q(sb.from("order_lines").insert(S.lines.map(x=>({...x,order_id:o.order_id}))).select(),{chk:"Quantity must be more than 0 and costs cannot be negative."});
-    if(!l){await sb.from("orders").delete().eq("order_id",o.order_id);$("#sv").disabled=false;return}
-    if(S.task){await Q(sb.from("pending_tasks").update({status:"done",completed_order_id:o.order_id,completed_at:new Date().toISOString()}).eq("task_id",S.task.task_id));S.task=null}
-    msg("Order saved.");if(hadTask)location.hash="tasks";else{logPage();badge()}
-  };
-}
-
-/* ---------- Order history ---------- */
-async function historyPage(){
-  $("#app").innerHTML=I("Every order placed. Click an order to see its lines, costs and deliveries.")+`<div class="bar"><input id="hq" placeholder="Search order number"><select id="hs"><option value="">All suppliers</option>${opt(S.sup,"supplier_id","name")}</select><select id="hst"><option value="">Any status</option><option>Not received</option><option>Partly received</option><option>Received</option></select></div><div id="hl">Loading…</div>`;
-  const od=await Q(sb.from("orders").select("order_id,order_number,supplier_id,site_id,order_date,order_lines(sku_id,quantity_ordered,unit_price,unit_freight,unit_duty,unit_other,landed_unit_cost,line_spend)").order("order_date",{ascending:false}).limit(500))||[];
-  const ids=od.map(o=>o.order_id);
-  const inv=ids.length?(await Q(sb.from("inventory_records").select("order_id,sku_id,arrival_date,quantity_received").in("order_id",ids))||[]):[];
-  const R={},F={};
-  inv.forEach(r=>{const k=r.order_id+"|"+r.sku_id;R[k]=(R[k]||0)+ +r.quantity_received;if(!F[r.order_id]||r.arrival_date<F[r.order_id])F[r.order_id]=r.arrival_date});
-  const rows=od.map(o=>{
-    const tot=o.order_lines.reduce((a,l)=>a+ +l.line_spend,0),got=o.order_lines.map(l=>R[o.order_id+"|"+l.sku_id]||0);
-    const full=o.order_lines.length>0&&o.order_lines.every((l,i)=>got[i]>=+l.quantity_ordered);
-    return{o,tot,got,st:full?"Received":got.some(x=>x>0)?"Partly received":"Not received",fa:F[o.order_id]}});
-  const nm=(a,k,id,f)=>{const x=a.find(y=>y[k]==id);return x?x[f]:""};
-  const bindEdit=()=>document.querySelectorAll(".ed").forEach(b=>b.onclick=e=>{
-    e.stopPropagation();const oid=b.dataset.o,sid=b.dataset.s,tr=b.closest("tr");
-    const o=od.find(x=>x.order_id==oid),l=o.order_lines.find(x=>x.sku_id==sid),got=R[oid+"|"+sid]||0;
-    const inp=(c,val)=>`<td><input type="number" step="any" min="0" class="${c}" value="${val}" style="width:84px"></td>`;
-    tr.innerHTML=`<td>${H(skuName(sid))}</td>${inp("e-q",l.quantity_ordered)}<td>${got}</td>${inp("e-p",l.unit_price)}${inp("e-f",l.unit_freight)}${inp("e-d",l.unit_duty)}${inp("e-o",l.unit_other)}<td colspan="2" class="m">Recalculated on save</td><td style="white-space:nowrap"><button class="pri" id="es">Save</button> <button id="ec">Cancel</button></td>`;
-    const g=c=>+tr.querySelector(c).value;
-    tr.querySelector("#ec").onclick=e2=>{e2.stopPropagation();draw()};
-    tr.querySelector("#es").onclick=async e2=>{e2.stopPropagation();const q=g(".e-q");
-      if(!(q>0))return msg("Quantity must be more than 0.",1);
-      if(q<got)return msg("Quantity cannot be less than the "+got+" already received.",1);
-      const ok=await D(sb.from("order_lines").update({quantity_ordered:q,unit_price:g(".e-p"),unit_freight:g(".e-f"),unit_duty:g(".e-d"),unit_other:g(".e-o")}).eq("order_id",oid).eq("sku_id",sid),{chk:"Quantity must be more than 0 and costs cannot be negative."},"Nothing was changed. You may not have permission to edit this.");
-      if(ok){msg("Line updated.");historyPage()}};
-  });
-  const draw=()=>{
-    const q=$("#hq").value.trim().toLowerCase(),su=$("#hs").value,st=$("#hst").value;
-    const f=rows.filter(r=>(!q||String(r.o.order_number).toLowerCase().includes(q))&&(!su||r.o.supplier_id==su)&&(!st||r.st===st));
-    $("#hl").innerHTML=f.length?`<div class="card" style="padding:0;overflow-x:auto"><table><tr><th>Order number</th><th>Supplier</th><th>Site</th><th>Order date</th><th>Total</th><th>Status</th><th>Lead time</th><th></th></tr>${f.map(r=>{
-      const d=r.fa?Math.round((new Date(r.fa)-new Date(r.o.order_date))/864e5)+" days":"—";
-      const ln=r.o.order_lines.map((l,i)=>`<tr><td>${H(skuName(l.sku_id))}</td><td>${l.quantity_ordered}</td><td>${r.got[i]}</td><td>${money(l.unit_price)}</td><td>${money(l.unit_freight)}</td><td>${money(l.unit_duty)}</td><td>${money(l.unit_other)}</td><td>${money(l.landed_unit_cost)}</td><td>${money(l.line_spend)}</td><td><button class="ed" data-o="${r.o.order_id}" data-s="${l.sku_id}" title="Edit line" aria-label="Edit line">${EDIT}</button></td></tr>`).join("");
-      return`<tr class="hr" data-id="${r.o.order_id}" style="cursor:pointer"><td><b>${H(r.o.order_number)}</b></td><td>${H(nm(S.sup,"supplier_id",r.o.supplier_id,"name"))}</td><td>${H(nm(S.sites,"site_id",r.o.site_id,"name"))}</td><td>${r.o.order_date}</td><td>${money(r.tot)}</td><td>${r.st}</td><td>${d}</td><td><button class="xdel" data-k="order_id" data-i="${r.o.order_id}" data-n="order ${H(r.o.order_number)}" data-x="This also deletes its ${r.o.order_lines.length} line(s) and ${inv.filter(z=>z.order_id==r.o.order_id).length} delivery record(s). This cannot be undone." title="Delete order" aria-label="Delete order">${TRASH}</button></td></tr><tr id="d${r.o.order_id}" style="display:none"><td colspan="8" style="background:var(--bg)"><table><tr><th>SKU</th><th>Ordered</th><th>Received</th><th>Unit price</th><th>Freight</th><th>Duty/tax</th><th>Other</th><th>Landed cost</th><th>Line total</th><th></th></tr>${ln}</table></td></tr>`}).join("")}</table></div>`:'<p class="m">No orders match.</p>';
-    document.querySelectorAll(".hr").forEach(t=>t.onclick=()=>{const x=$("#d"+t.dataset.id);x.style.display=x.style.display==="none"?"table-row":"none"});bindDel();bindEdit();
-  };
-  $("#hq").oninput=draw;$("#hs").onchange=draw;$("#hst").onchange=draw;draw();
-}
-
-/* ---------- Pending tasks ---------- */
-async function tasksPage(){
-  const t=await Q(sb.from("pending_tasks").select("*").eq("status","open").order("created_at"))||[];
-  $("#app").innerHTML=I("Orders placed outside this system that still need to be logged. The number on the Tasks badge is how many are open. Click Log order on a task to enter it.")+`<div class="card"><h2>Open tasks</h2>${t.length?t.map(x=>`<div class="bar" style="align-items:center;margin:0 0 8px"><span style="flex:1">${H(x.task_type)}: ${H(x.reference||"no reference")}</span><button data-id="${x.task_id}" class="pri">Log order</button><button class="xdel" data-k="task_id" data-i="${x.task_id}" data-n="task ${H(x.reference||"with no reference")}" title="Delete" aria-label="Delete">${TRASH}</button></div>`).join(""):'<p class="m">Nothing pending. Add a task when an order is placed outside the system.</p>'}</div>
-  <div class="card"><h2>Add task</h2><div class="g"><label>Order number or note<input id="tr"></label><label>SKU (optional)<select id="ts"><option value="">None</option>${opt(S.skus,"sku_id","sku_code")}</select></label><label>Site (optional)<select id="tl"><option value="">None</option>${opt(S.sites,"site_id","name")}</select></label></div><p><button id="ta">Add task</button></p></div>`;
-  document.querySelectorAll("[data-id]").forEach(b=>b.onclick=()=>{S.task=t.find(x=>x.task_id==b.dataset.id);location.hash="log"});bindDel();
-  $("#ta").onclick=async()=>{if(!$("#tr").value.trim())return msg("Enter an order number or note.",1);
-    const r=await W(sb.from("pending_tasks").insert({reference:$("#tr").value.trim(),sku_id:$("#ts").value||null,site_id:$("#tl").value||null,status:"open"}));
-    if(r){msg("Task added.");route()}};
-}
-
-/* ---------- Sites and QR codes ---------- */
-function sitePath(c){return location.origin+location.pathname+"#site-"+c}
-function sitesPage(){
-  $("#app").innerHTML=I("Each site is a place where stock is kept, with its own QR code. Scan a code to open that site and record usage or deliveries. Print the labels and put one up at each site.")+`<div class="bar noprint"><button onclick="print()">Print labels</button></div><div class="sites">${S.sites.map(s=>`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><b>${H(s.name)}</b><button class="xdel noprint" data-k="site_id" data-i="${s.site_id}" data-n="site ${H(s.name)}" title="Delete" aria-label="Delete">${TRASH}</button></div><div class="q" id="q${s.site_id}"></div><div>Scan to record usage</div><div class="m">${H(s.site_code)}</div></div>`).join("")}</div>
-  ${role==="site_staff"?"":`<div class="card noprint" style="margin-top:14px"><h2>Add site</h2><div class="g"><label>Name<input id="sn"></label><label>Code (lowercase, digits, hyphens)<input id="sc"></label></div><p><button id="sa" disabled>Add site</button></p></div>`}`;
-  S.sites.forEach(s=>new QRCode($("#q"+s.site_id),{text:sitePath(s.site_code),width:140,height:140}));bindDel();
-  const a=$("#sa");if(a){const f=()=>{a.disabled=!($("#sn").value.trim()&&$("#sc").value.trim())};$("#sn").oninput=f;$("#sc").oninput=f}if(a)a.onclick=async()=>{const r=await W(sb.from("sites").insert({name:$("#sn").value.trim(),site_code:$("#sc").value.trim()}),{dup:"The site code "+$("#sc").value.trim()+" was already added.",chk:"Site codes can only use lowercase letters, numbers and hyphens, like test-room."});if(r){msg("Site added.");boot()}};
-}
-
-/* ---------- Setup: suppliers and SKUs ---------- */
-function setupPage(){
-  const li=(a,f,id,lab)=>a.length?`<table>${a.map(x=>`<tr><td>${H(f(x))}</td><td style="width:36px"><button class="xdel" data-k="${id}" data-i="${x[id]}" data-n="${H(lab+" "+f(x))}" title="Delete" aria-label="Delete">${TRASH}</button></td></tr>`).join("")}</table>`:'<p class="m">None yet.</p>';
-  $("#app").innerHTML=I("Add the suppliers and products that appear on your orders. Do this once, then pick them from the Log order form.")+`<div class="two"><div class="card"><h2>Suppliers</h2>${li(S.sup,x=>x.name,"supplier_id","supplier")}<div class="g" style="margin-top:10px"><label>Supplier name<input id="sn"></label><label>Notes (optional)<input id="snt"></label></div><p><button class="pri" id="sa" disabled>Add supplier</button></p></div>
-  <div class="card"><h2>SKUs</h2>${li(S.skus,x=>x.sku_code+" "+x.description,"sku_id","SKU")}<div class="g" style="margin-top:10px"><label>SKU code<input id="kc"></label><label>Description<input id="kd"></label><label>Unit of measure<select id="ku"><option>each</option><option>pack</option><option>box</option><option>case</option><option>bag</option><option>bottle</option><option>roll</option><option>pounds</option><option>ounces</option><option>gallons</option><option>liters</option><option>inches</option><option>feet</option></select></label></div><p><button class="pri" id="ka" disabled>Add SKU</button></p></div></div>`;
-  bindDel();
-  const on=(ids,b)=>{const f=()=>{$(b).disabled=!ids.every(i=>$(i).value.trim())};ids.forEach(i=>$(i).oninput=f)};on(["#sn"],"#sa");on(["#kc","#kd"],"#ka");
-  $("#sa").onclick=async()=>{const n=$("#sn").value.trim();if(!n)return msg("Enter the supplier name.",1);
-    const r=await W(sb.from("suppliers").insert({name:n,notes:$("#snt").value.trim()||null}),{dup:n+" was already added."});if(r){msg("Supplier added.");await boot();location.hash="setup"}};
-  $("#ka").onclick=async()=>{const c=$("#kc").value.trim(),d=$("#kd").value.trim();if(!c||!d)return msg("Enter the SKU code and a description.",1);
-    const r=await W(sb.from("skus").insert({sku_code:c,description:d,unit_of_measure:$("#ku").value}),{dup:c+" was already added."});if(r){msg("SKU added.");await boot();location.hash="setup"}};
-}
-
-/* ---------- Site page (opened from a QR code) ---------- */
-async function sitePage(code){
-  const s=S.sites.find(x=>x.site_code===code);
-  if(!s)return $("#app").innerHTML='<div class="card"><h2>Site not found</h2><p class="m">Check the code on the label, or ask a manager for access to this site.</p></div>';
-  const od=await Q(sb.from("orders").select("order_id,order_number,order_date,order_lines(sku_id)").eq("site_id",s.site_id).order("order_date",{ascending:false}))||[];
-  const ids=od.map(o=>o.order_id);
-  const r=await Promise.all([ids.length?Q(sb.from("inventory_records").select("inventory_id,order_id,sku_id,arrival_date,quantity_received").in("order_id",ids).order("inventory_id",{ascending:false})):[],Q(sb.from("usage_events").select("usage_id,sku_id,event_type,quantity_change,note,created_at").eq("site_id",s.site_id).order("usage_id",{ascending:false}))]);
-  const st={};(r[0]||[]).forEach(x=>st[x.sku_id]=(st[x.sku_id]||0)+ +x.quantity_received);(r[1]||[]).forEach(x=>st[x.sku_id]=(st[x.sku_id]||0)+ +x.quantity_change);
-  const ks=Object.keys(st),dl=(r[0]||[]).slice(0,20),ul=(r[1]||[]).slice(0,20);
-  $("#app").innerHTML=I("Stock at this site. Record what was used here, and record each delivery when ordered goods arrive.")+`<div class="card"><h2>${H(s.name)}</h2><p class="m">On hand at this site</p>${ks.length?`<table>${ks.map(k=>`<tr><td>${H(skuName(k))}</td><td style="text-align:right;${st[k]<0?"color:var(--d)":""}"><b>${st[k]}</b>${st[k]<0?" (below zero)":""}</td></tr>`).join("")}</table>`:'<p class="m">No stock recorded yet.</p>'}</div>
-  <div class="card"><h2>Record usage</h2><div class="g"><label>SKU<select id="us">${opt(S.skus,"sku_id","sku_code")}</select></label><label>Type<select id="ut"><option value="use">Use</option><option value="waste">Waste</option><option value="adjustment">Count adjustment (+ or −)</option></select></label><label>Quantity<input type="number" step="any" id="uq"></label><label>Note<input id="un"></label></div><p><button class="pri" id="ub">Save usage</button></p></div>
-  <div class="card"><h2>Receive delivery</h2><div class="g"><label>Order line<select id="ro">${od.flatMap(o=>o.order_lines.map(l=>`<option value="${o.order_id}|${l.sku_id}">${H(o.order_number)} · ${H(skuName(l.sku_id))}</option>`)).join("")}</select></label><label>Arrival date<input type="date" id="rd" value="${today()}"></label><label>Quantity received<input type="number" step="any" min="0" id="rq"></label></div><p><button class="pri" id="rb">Save delivery</button></p></div>
-  <div class="card"><h2>Recent deliveries</h2>${dl.length?`<table><tr><th>Order</th><th>SKU</th><th>Arrived</th><th>Qty</th><th></th></tr>${dl.map(x=>{const o=od.find(y=>y.order_id==x.order_id);return`<tr><td>${H(o?o.order_number:x.order_id)}</td><td>${H(skuName(x.sku_id))}</td><td>${x.arrival_date}</td><td>${x.quantity_received}</td><td><button class="xdel" data-k="inventory_id" data-i="${x.inventory_id}" data-n="the delivery of ${x.quantity_received} ${H(skuName(x.sku_id))} on ${x.arrival_date}" title="Delete" aria-label="Delete">${TRASH}</button></td></tr>`}).join("")}</table>`:'<p class="m">No deliveries recorded yet.</p>'}</div>
-  <div class="card"><h2>Recent usage</h2>${ul.length?`<table><tr><th>Date</th><th>SKU</th><th>Type</th><th>Qty</th><th>Note</th><th></th></tr>${ul.map(x=>`<tr><td>${String(x.created_at).slice(0,10)}</td><td>${H(skuName(x.sku_id))}</td><td>${H(x.event_type)}</td><td>${x.quantity_change}</td><td>${H(x.note||"")}</td><td><button class="xdel" data-k="usage_id" data-i="${x.usage_id}" data-n="the usage record of ${x.quantity_change} ${H(skuName(x.sku_id))} on ${String(x.created_at).slice(0,10)}" title="Delete" aria-label="Delete">${TRASH}</button></td></tr>`).join("")}</table>`:'<p class="m">No usage recorded yet.</p>'}</div>`;
-  $("#ub").onclick=async()=>{let q=+$("#uq").value,t=$("#ut").value;if(!q)return msg("Enter a quantity.",1);if(t!=="adjustment")q=-Math.abs(q);
-    $("#ub").disabled=true;const x=await W(sb.from("usage_events").insert({site_id:s.site_id,sku_id:+$("#us").value,event_type:t,quantity_change:q,note:$("#un").value||null}));if(x){msg("Usage saved.");sitePage(code)}else $("#ub").disabled=false};
-  $("#rb").onclick=async()=>{const p=$("#ro").value.split("|");if(!p[0]||!(+$("#rq").value>0))return msg("Choose an order line and enter a quantity.",1);
-    const od1=od.find(x=>x.order_id==p[0]);if(od1&&$("#rd").value<od1.order_date)return msg("Arrival date cannot be earlier than the order date ("+od1.order_date+").",1);
-    $("#rb").disabled=true;const x=await W(sb.from("inventory_records").insert({order_id:+p[0],sku_id:+p[1],arrival_date:$("#rd").value,quantity_received:+$("#rq").value}),{chk:"Arrival date cannot be earlier than the order date, and the quantity must be more than 0."});if(x){msg("Delivery saved.");sitePage(code)}else $("#rb").disabled=false};
-  bindDel();
-}
-boot();
+start("index",dash);
 </script>
 </body>
 </html>

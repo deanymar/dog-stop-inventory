@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sites · Order Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app"></main>
+<div id="msg"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+/* ---------- Sites and QR codes ---------- */
+function sitesPage(){
+  $("#app").innerHTML=I("Each site is a place where stock is kept, with its own QR code. Scan a code to open that site and record usage or deliveries. Print the labels and put one up at each site.")+`<div class="bar noprint"><button onclick="print()">Print labels</button></div><div class="sites">${S.sites.map(s=>`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><b>${H(s.name)}</b><button class="xdel noprint" data-k="site_id" data-i="${s.site_id}" data-n="site ${H(s.name)}" title="Delete" aria-label="Delete">${TRASH}</button></div><div class="q" id="q${s.site_id}"></div><div>Scan to record usage</div><div class="m">${H(s.site_code)}</div><div class="noprint"><a href="${sitePath(s.site_code)}">Open site page</a></div></div>`).join("")}</div>
+  ${role==="site_staff"?"":`<div class="card noprint" style="margin-top:14px"><h2>Add site</h2><div class="g"><label>Name<input id="sn"></label><label>Code (lowercase, digits, hyphens)<input id="sc"></label></div><p><button id="sa" disabled>Add site</button></p></div>`}`;
+  S.sites.forEach(s=>new QRCode($("#q"+s.site_id),{text:sitePath(s.site_code),width:140,height:140}));bindDel();
+  const a=$("#sa");if(a){const f=()=>{a.disabled=!($("#sn").value.trim()&&$("#sc").value.trim())};$("#sn").oninput=f;$("#sc").oninput=f}if(a)a.onclick=async()=>{const r=await W(sb.from("sites").insert({name:$("#sn").value.trim(),site_code:$("#sc").value.trim()}),{dup:"The site code "+$("#sc").value.trim()+" was already added.",chk:"Site codes can only use lowercase letters, numbers and hyphens, like test-room."});if(r){msg("Site added.");refresh()}};
+}
+start("sites",sitesPage);
+</script>
+</body>
+</html>
