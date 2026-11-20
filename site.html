@@ -1,4 +1,11 @@
 <!doctype html>
+<!--
+  FILE: site.html = SITE PAGE (opened by scanning a QR code: site.html?s=<site_code>).
+  Reads: orders, inventory_records, usage_events. Writes: usage_events, inventory_records. Edits/deletes deliveries and usage.
+  Part of the Order Tracker. Loads: supabase-js (CDN), config.js, app.js, then the script below.
+  Dates are approximate: P1 planning ~Nov 16-17 2026, P2 first app ~Nov 17, P3 fixes from QA testing ~Nov 17-19, P4 page split, popups, receipt page ~Nov 19-20. See README 'How dates are given'.
+  Read README.md first and CODE_MAP.md to find any function.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -14,12 +21,22 @@
 <script src="app.js"></script>
 <script>
 /* ---------- Site page (opened from a QR code) ---------- */
+/*
+ * Everything a person needs standing at a shelf: stock on hand, record usage, receive a delivery, and the recent
+ * deliveries/usage with edit and delete. On hand = received - used, computed here [P2]. WHY not the database
+ * view v_stock_on_hand: it was built before the table renames and this keeps the screen working regardless.
+ * Stock may go negative: it shows red "(below zero)" and is allowed (you chose "flag, do not block", Nov 17).
+ */
 async function sitePage(code){
   const s=S.sites.find(x=>x.site_code===code);
   if(!s)return $("#app").innerHTML='<div class="card"><h2>Site not found</h2><p class="m">Check the code on the label, or ask a manager for access to this site.</p></div>';
+  // Orders for THIS site (the destination chosen on the order). Receive-delivery dropdown comes from these.
   const od=await Q(sb.from("orders").select("order_id,order_number,order_date,order_lines(sku_id)").eq("site_id",s.site_id).order("order_date",{ascending:false}))||[];
   const ids=od.map(o=>o.order_id);
+  // Deliveries are fetched by order ids (not embedded). Same reason as history.html: no direct link from
+  // inventory_records to orders after the composite key change.
   const r=await Promise.all([ids.length?Q(sb.from("inventory_records").select("inventory_id,order_id,sku_id,arrival_date,quantity_received").in("order_id",ids).order("inventory_id",{ascending:false})):[],Q(sb.from("usage_events").select("usage_id,sku_id,event_type,quantity_change,note,created_at").eq("site_id",s.site_id).order("usage_id",{ascending:false}))]);
+  // st[sku] = running total: received (+) and usage (- stored as negative).
   const st={};(r[0]||[]).forEach(x=>st[x.sku_id]=(st[x.sku_id]||0)+ +x.quantity_received);(r[1]||[]).forEach(x=>st[x.sku_id]=(st[x.sku_id]||0)+ +x.quantity_change);
   const ks=Object.keys(st),dl=(r[0]||[]).slice(0,20),ul=(r[1]||[]).slice(0,20);
   $("#app").innerHTML=I("Stock at this site. Record what was used here, and record each delivery when ordered goods arrive.")+`<div class="card"><h2>${H(s.name)}</h2><p class="m">On hand at this site</p>${ks.length?`<table>${ks.map(k=>`<tr><td>${H(skuName(k))}</td><td style="text-align:right;${st[k]<0?"color:var(--d)":""}"><b>${st[k]}</b>${st[k]<0?" (below zero)":""}</td></tr>`).join("")}</table>`:'<p class="m">No stock recorded yet.</p>'}</div>
@@ -27,11 +44,15 @@ async function sitePage(code){
   <div class="card"><h2>Receive delivery</h2><div class="g"><label>Order line<select id="ro">${od.flatMap(o=>o.order_lines.map(l=>`<option value="${o.order_id}|${l.sku_id}">${H(o.order_number)} · ${H(skuName(l.sku_id))}</option>`)).join("")}</select></label><label>Arrival date<input type="date" id="rd" value="${today()}"></label><label>Quantity received<input type="number" step="any" min="0" id="rq"></label></div><p><button class="pri" id="rb">Save delivery</button></p></div>
   <div class="card"><h2>Recent deliveries</h2>${dl.length?`<table><tr><th>Order</th><th>SKU</th><th>Arrived</th><th>Qty</th><th></th></tr>${dl.map(x=>{const o=od.find(y=>y.order_id==x.order_id);return`<tr><td>${H(o?o.order_number:x.order_id)}</td><td>${H(skuName(x.sku_id))}</td><td>${x.arrival_date}</td><td>${x.quantity_received}</td><td style="white-space:nowrap"><button class="edv" data-i="${x.inventory_id}" title="Edit delivery" aria-label="Edit delivery">${EDIT}</button><button class="xdel" data-k="inventory_id" data-i="${x.inventory_id}" data-n="the delivery of ${x.quantity_received} ${H(skuName(x.sku_id))} on ${x.arrival_date}" title="Delete" aria-label="Delete">${TRASH}</button></td></tr>`}).join("")}</table>`:'<p class="m">No deliveries recorded yet.</p>'}</div>
   <div class="card"><h2>Recent usage</h2>${ul.length?`<table><tr><th>Date</th><th>SKU</th><th>Type</th><th>Qty</th><th>Note</th><th></th></tr>${ul.map(x=>`<tr><td>${String(x.created_at).slice(0,10)}</td><td>${H(skuName(x.sku_id))}</td><td>${H(x.event_type)}</td><td>${x.quantity_change}</td><td>${H(x.note||"")}</td><td><button class="xdel" data-k="usage_id" data-i="${x.usage_id}" data-n="the usage record of ${x.quantity_change} ${H(skuName(x.sku_id))} on ${String(x.created_at).slice(0,10)}" title="Delete" aria-label="Delete">${TRASH}</button></td></tr>`).join("")}</table>`:'<p class="m">No usage recorded yet.</p>'}</div>`;
+  // Usage: the form takes a positive number; use and waste are SAVED NEGATIVE. Count adjustment keeps its sign.
+  // Button disables while saving (double click once created a duplicate delivery).
   $("#ub").onclick=async()=>{let q=+$("#uq").value,t=$("#ut").value;if(!q)return msg("Enter a quantity.",1);if(t!=="adjustment")q=-Math.abs(q);
     $("#ub").disabled=true;const x=await W(sb.from("usage_events").insert({site_id:s.site_id,sku_id:+$("#us").value,event_type:t,quantity_change:q,note:$("#un").value||null}));if(x){msg("Usage saved.");sitePage(code)}else $("#ub").disabled=false};
+  // Delivery checks arrival date >= order date in the browser first (clear message), the database trigger is the backstop.
   $("#rb").onclick=async()=>{const p=$("#ro").value.split("|");if(!p[0]||!(+$("#rq").value>0))return msg("Choose an order line and enter a quantity.",1);
     const od1=od.find(x=>x.order_id==p[0]);if(od1&&$("#rd").value<od1.order_date)return msg("Arrival date cannot be earlier than the order date ("+od1.order_date+").",1);
     $("#rb").disabled=true;const x=await W(sb.from("inventory_records").insert({order_id:+p[0],sku_id:+p[1],arrival_date:$("#rd").value,quantity_received:+$("#rq").value}),{chk:"Arrival date cannot be earlier than the order date, and the quantity must be more than 0."});if(x){msg("Delivery saved.");sitePage(code)}else $("#rb").disabled=false};
+  // Edit a delivery [P4]: date and quantity only (you could not change a received line, 17.7). Same date rule.
   document.querySelectorAll(".edv").forEach(b=>b.onclick=()=>{
     const x=dl.find(y=>y.inventory_id==b.dataset.i),tr=b.closest("tr"),o=od.find(y=>y.order_id==x.order_id);
     tr.innerHTML=`<td>${H(o?o.order_number:x.order_id)}</td><td>${H(skuName(x.sku_id))}</td><td><input type="date" class="v-d" value="${x.arrival_date}"></td><td><input type="number" step="any" min="0" class="v-q" value="${x.quantity_received}" style="width:90px"></td><td style="white-space:nowrap"><button class="pri" id="vs">Save</button> <button id="vc">Cancel</button></td>`;
@@ -44,6 +65,9 @@ async function sitePage(code){
   });
   bindDel();
 }
+/*
+ * Reads ?s=<site_code> from the address. Unknown code shows "Site not found".
+ */
 start("site",()=>sitePage(new URLSearchParams(location.search).get("s")||""));
 </script>
 </body>

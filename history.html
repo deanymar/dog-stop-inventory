@@ -1,4 +1,11 @@
 <!doctype html>
+<!--
+  FILE: history.html = ORDER HISTORY. Lists every order placed, with status, lead time and expandable lines.
+  Reads: orders, order_lines, inventory_records. Writes: order_lines (edit), deletes via bindDel in app.js.
+  Part of the Order Tracker. Loads: supabase-js (CDN), config.js, app.js, then the script below.
+  Dates are approximate: P1 planning ~Nov 16-17 2026, P2 first app ~Nov 17, P3 fixes from QA testing ~Nov 17-19, P4 page split, popups, receipt page ~Nov 19-20. See README 'How dates are given'.
+  Read README.md first and CODE_MAP.md to find any function.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -14,18 +21,31 @@
 <script src="app.js"></script>
 <script>
 /* ---------- Order history ---------- */
+/*
+ * You asked for an order history [P3]. Filters: search, supplier, status, plus Reset filters (QA test 15.9).
+ * Click a row to open its lines. Pencil = edit a line, trash = delete the whole order (with a popup).
+ */
 async function historyPage(){
   $("#app").innerHTML=I("Every order placed. Click an order to see its lines, costs and deliveries.")+`<div class="bar"><input id="hq" placeholder="Search order number"><select id="hs"><option value="">All suppliers</option>${opt(S.sup,"supplier_id","name")}</select><select id="hst"><option value="">Any status</option><option>Not received</option><option>Partly received</option><option>Received</option></select><button id="hrs">Reset filters</button></div><div id="hl">Loading…</div>`;
+  // Orders newest first, limited to 500. Lines come embedded (orders -> order_lines is a real database link).
   const od=await Q(sb.from("orders").select("order_id,order_number,supplier_id,site_id,order_date,order_lines(sku_id,quantity_ordered,unit_price,unit_freight,unit_duty,unit_other,landed_unit_cost,line_spend)").order("order_date",{ascending:false}).limit(500))||[];
   const ids=od.map(o=>o.order_id);
+  // Deliveries are fetched SEPARATELY with .in(order_id, ids). WHY [P3-P4]: my fix-up prompt replaced the direct
+  // link inventory_records -> orders with a link to order_lines, so embedding orders inside deliveries stopped
+  // working ("Could not find a relationship" error). Two queries avoid depending on that link.
   const inv=ids.length?(await Q(sb.from("inventory_records").select("order_id,sku_id,arrival_date,quantity_received").in("order_id",ids))||[]):[];
+  // R = received quantity per order+SKU; F = first arrival date per order (lead time = first arrival - order date,
+  // matching the rule you chose for partial deliveries, Nov 17).
   const R={},F={};
   inv.forEach(r=>{const k=r.order_id+"|"+r.sku_id;R[k]=(R[k]||0)+ +r.quantity_received;if(!F[r.order_id]||r.arrival_date<F[r.order_id])F[r.order_id]=r.arrival_date});
+  // Status: Received (all lines fully received), Partly received, Not received.
   const rows=od.map(o=>{
     const tot=o.order_lines.reduce((a,l)=>a+ +l.line_spend,0),got=o.order_lines.map(l=>R[o.order_id+"|"+l.sku_id]||0);
     const full=o.order_lines.length>0&&o.order_lines.every((l,i)=>got[i]>=+l.quantity_ordered);
     return{o,tot,got,st:full?"Received":got.some(x=>x>0)?"Partly received":"Not received",fa:F[o.order_id]}});
   const nm=(a,k,id,f)=>{const x=a.find(y=>y[k]==id);return x?x[f]:""};
+  // EDIT A LINE [P3]: row becomes inputs. Rules: quantity > 0 and never below what was already received.
+  // To fix a received amount, edit the delivery on site.html instead. Uses D() so a silently blocked update is reported.
   const bindEdit=()=>document.querySelectorAll(".ed").forEach(b=>b.onclick=e=>{
     e.stopPropagation();const oid=b.dataset.o,sid=b.dataset.s,tr=b.closest("tr");
     const o=od.find(x=>x.order_id==oid),l=o.order_lines.find(x=>x.sku_id==sid),got=R[oid+"|"+sid]||0;
@@ -39,6 +59,7 @@ async function historyPage(){
       const ok=await D(sb.from("order_lines").update({quantity_ordered:q,unit_price:g(".e-p"),unit_freight:g(".e-f"),unit_duty:g(".e-d"),unit_other:g(".e-o")}).eq("order_id",oid).eq("sku_id",sid),{chk:"Quantity must be more than 0 and costs cannot be negative."},"Nothing was changed. You may not have permission to edit this.");
       if(ok){msg("Line updated.");historyPage()}};
   });
+  // Re-renders the table from the in-memory rows using the three filters. No new queries.
   const draw=()=>{
     const q=$("#hq").value.trim().toLowerCase(),su=$("#hs").value,st=$("#hst").value;
     const f=rows.filter(r=>(!q||String(r.o.order_number).toLowerCase().includes(q))&&(!su||r.o.supplier_id==su)&&(!st||r.st===st));
@@ -48,9 +69,13 @@ async function historyPage(){
       return`<tr class="hr" data-id="${r.o.order_id}" style="cursor:pointer"><td><b>${H(r.o.order_number)}</b></td><td>${H(nm(S.sup,"supplier_id",r.o.supplier_id,"name"))}</td><td>${H(nm(S.sites,"site_id",r.o.site_id,"name"))}</td><td>${r.o.order_date}</td><td>${money(r.tot)}</td><td>${r.st}</td><td>${d}</td><td><button class="xdel" data-k="order_id" data-i="${r.o.order_id}" data-n="order ${H(r.o.order_number)}" data-x="This also deletes its ${r.o.order_lines.length} line(s) and ${inv.filter(z=>z.order_id==r.o.order_id).length} delivery record(s). This cannot be undone." title="Delete order" aria-label="Delete order">${TRASH}</button></td></tr><tr id="d${r.o.order_id}" style="display:none"><td colspan="8" style="background:var(--bg)"><table><tr><th>SKU</th><th>Ordered</th><th>Received</th><th>Unit price</th><th>Freight</th><th>Duty/tax</th><th>Other</th><th>Landed cost</th><th>Line total</th><th></th></tr>${ln}</table></td></tr>`}).join("")}</table></div>`:'<p class="m">No orders match.</p>';
     document.querySelectorAll(".hr").forEach(t=>t.onclick=()=>{const x=$("#d"+t.dataset.id);x.style.display=x.style.display==="none"?"table-row":"none"});bindDel();bindEdit();
   };
+  // Reset filters button (QA 15.9, Nov 19-20).
   $("#hrs").onclick=()=>{$("#hq").value="";$("#hs").value="";$("#hst").value="";draw()};
   $("#hq").oninput=draw;$("#hs").onchange=draw;$("#hst").onchange=draw;draw();
 }
+/*
+ * Boot the page.
+ */
 start("history",historyPage);
 </script>
 </body>

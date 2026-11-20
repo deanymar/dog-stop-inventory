@@ -1,4 +1,11 @@
 <!doctype html>
+<!--
+  FILE: sites.html = SITES + QR LABELS. A site is a place where stock is kept; each gets a QR code.
+  Reads/writes: sites. Uses the qrcodejs library to draw codes in the browser.
+  Part of the Order Tracker. Loads: supabase-js (CDN), config.js, app.js, then the script below.
+  Dates are approximate: P1 planning ~Nov 16-17 2026, P2 first app ~Nov 17, P3 fixes from QA testing ~Nov 17-19, P4 page split, popups, receipt page ~Nov 19-20. See README 'How dates are given'.
+  Read README.md first and CODE_MAP.md to find any function.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -15,12 +22,21 @@
 <script src="app.js"></script>
 <script>
 /* ---------- Sites and QR codes ---------- */
+/*
+ * QR codes are generated IN THE BROWSER from the site code, so adding a site needs no extra step. [P2]
+ * LIBRARY: qrcodejs 1.0.0 from cdnjs (https://cdnjs.com/libraries/qrcodejs), pinned to an exact version
+ * so a surprise update cannot break labels. Print labels uses the browser print dialog; .noprint hides the menu.
+ * "Open site page" link added [P4] because there was no way to reach a site page except by scanning.
+ */
 function sitesPage(){
   $("#app").innerHTML=I("Each site is a place where stock is kept, with its own QR code. Scan a code to open that site and record usage or deliveries. Print the labels and put one up at each site.")+`<div class="bar noprint"><button onclick="print()">Print labels</button></div><div class="sites">${S.sites.map(s=>`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><b>${H(s.name)}</b><button class="xdel noprint" data-k="site_id" data-i="${s.site_id}" data-n="site ${H(s.name)}" title="Delete" aria-label="Delete">${TRASH}</button></div><div class="q" id="q${s.site_id}"></div><div>Scan to record usage</div><div class="m">${H(s.site_code)}</div><div class="noprint"><a href="${sitePath(s.site_code)}">Open site page</a></div></div>`).join("")}</div>
   ${role==="site_staff"?"":`<div class="card noprint" style="margin-top:14px"><h2>Add site</h2><div class="g"><label>Name<input id="sn"></label><label>Code (lowercase, digits, hyphens)<input id="sc"></label></div><p><button id="sa" disabled>Add site</button></p></div>`}`;
   S.sites.forEach(s=>new QRCode($("#q"+s.site_id),{text:sitePath(s.site_code),width:140,height:140}));bindDel();
   const a=$("#sa");if(a){const f=()=>{a.disabled=!($("#sn").value.trim()&&$("#sc").value.trim())};$("#sn").oninput=f;$("#sc").oninput=f}if(a)a.onclick=async()=>{const r=await W(sb.from("sites").insert({name:$("#sn").value.trim(),site_code:$("#sc").value.trim()}),{dup:"The site code "+$("#sc").value.trim()+" was already added.",chk:"Site codes can only use lowercase letters, numbers and hyphens, like test-room."});if(r){msg("Site added.");refresh()}};
 }
+/*
+ * Boot the page.
+ */
 start("sites",sitesPage);
 </script>
 </body>

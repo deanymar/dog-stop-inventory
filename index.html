@@ -1,4 +1,11 @@
 <!doctype html>
+<!--
+  FILE: index.html = DASHBOARD (home page). Kept as index.html because GitHub Pages serves it at the site root (you asked for this).
+  Shows: totals, orders-over-time charts, top 5 SKUs, weekly usage with the 3 heaviest weeks flagged, lead-time alerts.
+  Part of the Order Tracker. Loads: supabase-js (CDN), config.js, app.js, then the script below.
+  Dates are approximate: P1 planning ~Nov 16-17 2026, P2 first app ~Nov 17, P3 fixes from QA testing ~Nov 17-19, P4 page split, popups, receipt page ~Nov 19-20. See README 'How dates are given'.
+  Read README.md first and CODE_MAP.md to find any function.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -14,26 +21,47 @@
 <script src="app.js"></script>
 <script>
 /* ---------- Dashboard ---------- */
+/*
+ * Builds the filter bar and calls draw(). Default range = last 90 days [P2]. A test note: orders older than
+ * 90 days will not show until the From date is moved back (QA Part 7 says so).
+ */
 function dash(){
   const f=new Date(Date.now()-90*864e5).toISOString().slice(0,10);
   $("#app").innerHTML=I("Your overview: what you ordered and spent, what was used, and which orders are running late. Change the filters and press Apply.")+`<div class="bar"><select id="fs"><option value="">All SKUs</option>${opt(S.skus,"sku_id","sku_code")}</select><input type="date" id="ff" value="${f}"><input type="date" id="ft" value="${today()}"><button class="pri" id="go">Apply</button></div><div id="d">Loading…</div>`;
   $("#go").onclick=draw;draw();
 }
+/*
+ * Tiny SVG line chart written by hand. WHY no chart library [P2]: fewer files and no extra CDN to trust.
+ * Labels print on points when there are 6 or fewer (a single month used to look like a lone dot) [P3].
+ * The invisible big circle (class hit) is the hover target for the tooltip in app.js.
+ */
 function line(vals,labels,fmt){
   if(!vals.length)return'<p class="m">No orders in this range.</p>';
   const w=320,h=110,mx=Math.max(...vals)||1,x=i=>vals.length<2?w/2:10+i*(w-20)/(vals.length-1),y=v=>h-10-v/mx*(h-24);
   return`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Line chart"><polyline fill="none" stroke="var(--a)" stroke-width="2" points="${vals.map((v,i)=>x(i)+","+y(v)).join(" ")}"/>${vals.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="var(--a)"/><circle class="hit" data-t="${labels[i]}: ${fmt(v)}" cx="${x(i)}" cy="${y(v)}" r="12" fill="transparent"/>`).join("")}${vals.length<=6?vals.map((v,i)=>`<text x="${x(i)}" y="${y(v)-7}" text-anchor="middle" font-size="9" fill="currentColor">${fmt(v)}</text><text x="${x(i)}" y="${h-1}" text-anchor="middle" font-size="9" fill="currentColor" opacity=".6">${labels[i]}</text>`).join(""):""}</svg><div class="m">${labels[0]} to ${labels[labels.length-1]}. Highest: ${fmt(mx)}</div>`;
 }
+/*
+ * draw() = read three things then compute everything in the browser:
+ * 1) orders with their lines in the date range, 2) usage events of type "use", 3) the view v_lead_time_alerts.
+ * WHY computed here, not in database functions [P2-P3]: the AI-built schema changed names, and browser code
+ * is easier for you to change. COST: all rows are downloaded; fine for small volumes, revisit past ~10,000 orders.
+ */
 async function draw(){
   const sku=$("#fs").value,f=$("#ff").value,t=$("#ft").value;
+  // Three queries run in parallel. The alerts view needs no date filter: an alert is true regardless of range.
   const r=await Promise.all([
     Q(sb.from("orders").select("order_date,order_lines(sku_id,quantity_ordered,line_spend)").gte("order_date",f).lte("order_date",t)),
     Q(sb.from("usage_events").select("sku_id,quantity_change,created_at").eq("event_type","use").gte("created_at",f).lte("created_at",t+"T23:59:59")),
     Q(sb.from("v_lead_time_alerts").select("*"))]);
+  // Flatten orders -> lines, apply the SKU filter, then total by month (M) and by SKU (by).
+  // Spend uses line_spend (generated column) so the browser never re-derives landed cost.
   const lines=(r[0]||[]).flatMap(o=>o.order_lines.map(l=>({...l,d:o.order_date}))).filter(l=>!sku||l.sku_id==sku);
   const M={},by={};
   lines.forEach(l=>{const k=l.d.slice(0,7);(M[k]=M[k]||{u:0,s:0});M[k].u+=+l.quantity_ordered;M[k].s+=+l.line_spend;(by[l.sku_id]=by[l.sku_id]||{u:0,s:0});by[l.sku_id].u+=+l.quantity_ordered;by[l.sku_id].s+=+l.line_spend});
   const ks=Object.keys(M).sort(),U=lines.reduce((a,l)=>a+ +l.quantity_ordered,0),SP=lines.reduce((a,l)=>a+ +l.line_spend,0);
+  // Weekly usage: weeks start MONDAY (ISO 8601). Only event_type "use" counts (not waste/adjustments).
+  // Quantities are stored negative, so usage = minus the sum. is-hot = top 3 weeks in the range [P3 decision].
+  // USES created_at, NOT recorded_at: the AI-built column is created_at (error found Nov 17-19).
   const W={};
   (r[1]||[]).filter(e=>!sku||e.sku_id==sku).forEach(e=>{const d=new Date(e.created_at);d.setDate(d.getDate()-(d.getDay()+6)%7);const k=d.toISOString().slice(0,10);W[k]=(W[k]||0)-e.quantity_change});
   const wk=Object.keys(W).sort(),hot=wk.slice().sort((a,b)=>W[b]-W[a]).slice(0,3),wm=Math.max(...wk.map(k=>W[k]),1);
@@ -45,9 +73,13 @@ async function draw(){
   <div class="two"><div class="card"><div class="bar" style="margin:0 0 6px;justify-content:space-between"><h2 style="margin:0">Top 5 SKUs</h2><span><button id="bs">Spend</button> <button id="bu">Units</button></span></div><div id="top"></div></div>
   <div class="card"><h2>Weekly usage</h2>${wk.length?`<div class="wk">${wk.map(k=>`<div class="${hot.includes(k)?"hot":""}" style="height:${W[k]/wm*100}%" data-t="Week of ${k}: ${W[k]}"></div>`).join("")}</div><p class="m">Amber: the 3 heaviest weeks in this range. ${hot.map(k=>k+" ("+W[k]+")").join(", ")}</p>`:'<p class="m">No usage recorded in this range.</p>'}</div></div>
   <div class="card al"><h2>Lead-time alerts</h2>${al.length?`<div style="overflow-x:auto"><table><tr>${cols.map(c=>`<th>${H(hd(c))}</th>`).join("")}</tr>${al.map(a=>`<tr>${cols.map(c=>`<td>${H(fv(c,a[c]))}</td>`).join("")}</tr>`).join("")}</table></div>`:'<p class="m">No late orders.</p>'}</div>`;
+  // Top 5 SKUs, switchable between spend (s) and units (u). Drawn with plain divs for the bars.
   const top=m=>{const e=Object.entries(by).sort((a,b)=>b[1][m]-a[1][m]).slice(0,5),mx=e.length?e[0][1][m]:1;$("#top").innerHTML=e.length?e.map(x=>`<div class="row"><span>${H(skuName(x[0]))}</span><i style="width:${x[1][m]/mx*100}%"></i><b>${m==="s"?money(x[1].s):x[1].u.toLocaleString()}</b></div>`).join(""):'<p class="m">No orders in this range.</p>'};
   $("#bs").onclick=()=>top("s");$("#bu").onclick=()=>top("u");top("s");
 }
+/*
+ * Boot the page.
+ */
 start("index",dash);
 </script>
 </body>

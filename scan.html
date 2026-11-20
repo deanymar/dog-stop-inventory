@@ -1,4 +1,13 @@
 <!doctype html>
+<!--
+  FILE: scan.html = SCAN RECEIPT (copy and paste route, no API).
+  You chose option 2 on Nov 20: the free Claude plan has no API, so the page gives you a prompt to paste into claude.ai
+  with your receipt, then you paste the JSON reply back here and review it before saving.
+  Writes: suppliers, skus, orders, order_lines, inventory_records (when marked received).
+  Part of the Order Tracker. Loads: supabase-js (CDN), config.js, app.js, then the script below.
+  Dates are approximate: P1 planning ~Nov 16-17 2026, P2 first app ~Nov 17, P3 fixes from QA testing ~Nov 17-19, P4 page split, popups, receipt page ~Nov 19-20. See README 'How dates are given'.
+  Read README.md first and CODE_MAP.md to find any function.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -13,9 +22,21 @@
 <script src="config.js"></script>
 <script src="app.js"></script>
 <script>
+/*
+ * The exact JSON shape Claude is asked to return. If you change it, change review() too.
+ */
 const SCHEMA='{"supplier":"","order_number":"","order_date":"YYYY-MM-DD","items":[{"description":"","code":"","quantity":1,"unit_price":0}],"shipping":0,"tax":0,"other_fees":0}';
+/*
+ * The prompt text. Two flavours: store receipt photo vs online order. Rules inside it prevent common mistakes:
+ * price of ONE unit before tax, totals for shipping/tax/fees, empty text when unknown, ignore card numbers.
+ * SOURCE: wording written for this project; no template was copied.
+ */
 const rpt=t=>(t==="store"?"The attached image is a photo of a paper receipt from a store.":"The attached file or pasted text is an online order confirmation or receipt (for example from Amazon).")+" Read it and reply with ONLY one JSON object in exactly this shape, with no other text:\n"+SCHEMA+"\nRules: supplier is the store or website name. order_number is the order or receipt number, or empty if there is none. order_date is YYYY-MM-DD. List every purchased item in items. code is the item number, SKU or ASIN shown for that item, or empty. quantity is the number of units. unit_price is the price of ONE unit before tax, as a plain number. shipping, tax and other_fees are totals for the whole order; other_fees is negative for discounts. If something is not visible, use empty text or 0. Do not guess prices. Ignore card numbers and personal details.";
 
+/*
+ * Steps 1-3 (choose type, copy prompt, paste reply). The reply is parsed from the first { to the last },
+ * so extra words around the JSON do not matter. Clipboard uses navigator.clipboard (MDN); if blocked, the text is selected.
+ */
 function scanPage(){
   $("#app").innerHTML=I("Turn a receipt into an order. Copy the prompt, give it to Claude with your receipt, paste Claude's reply here, check the details, then save.")+`<div class="card"><h2>1. What kind of receipt is it?</h2><div class="bar" style="margin:0"><label class="rd"><input type="radio" name="kind" value="online" checked> Online order (Amazon, etc.)</label><label class="rd"><input type="radio" name="kind" value="store"> Paper receipt from a store</label></div></div>
   <div class="card"><h2>2. Copy this prompt into Claude</h2><p class="m">Open claude.ai, attach your screenshot, photo or PDF (or paste the email text), and paste this prompt. Then copy Claude's reply.</p><textarea id="pr" readonly rows="5"></textarea><p><button id="cp">Copy prompt</button></p></div>
@@ -30,6 +51,12 @@ function scanPage(){
     review(d,kind())};
 }
 
+/*
+ * Step 4: the REVIEW screen. Nothing is saved until you click Save. Matching rules:
+ * SKU: exact code match, else at least half the words of the description in common (best()).
+ * Supplier: exact name, else one contains the other, else "+ New supplier" (PetSmart case you described).
+ * Received question: store receipt defaults Yes (arrival = order date), online defaults Not yet.
+ */
 function review(d,kind){
   const nm=s=>String(s==null?"":s).trim(),lc=s=>nm(s).toLowerCase();
   const slug=s=>nm(s).toUpperCase().replace(/[^A-Z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,24);
@@ -37,6 +64,7 @@ function review(d,kind){
   const score=(a,b)=>{const x=words(a),y=words(b);if(!x.size||!y.size)return 0;let n=0;x.forEach(w=>{if(y.has(w))n++});return n/Math.max(x.size,y.size)};
   const items=(d.items||[]).map(x=>({desc:nm(x.description),code:nm(x.code),q:+x.quantity||1,p:+x.unit_price||0})).filter(x=>x.desc||x.code);
   if(!items.length)return msg("No items found in that reply.",1);
+  // Word-overlap score, words of 3+ letters. Deliberately simple and always editable; wrong guesses are cheap to fix on screen.
   const best=it=>{let b=null,bs=0;S.skus.forEach(k=>{const s=it.code&&lc(k.sku_code)===lc(it.code)?1:score(it.desc,k.description);if(s>bs){bs=s;b=k}});return bs>=.5?b:null};
   const sn=lc(d.supplier),sm=S.sup.find(s=>lc(s.name)===sn)||S.sup.find(s=>sn&&(lc(s.name).includes(sn)||sn.includes(lc(s.name))));
   const od=/^\d{4}-\d{2}-\d{2}$/.test(nm(d.order_date))?nm(d.order_date):today(),store=kind==="store";
@@ -49,6 +77,10 @@ function review(d,kind){
   const sw=()=>{$("#snl").style.display=$("#sup").value==="__new"?"flex":"none"};$("#sup").onchange=sw;sw();
   document.querySelectorAll(".li").forEach((c,i)=>{const s=c.querySelector(".r-s"),n=c.querySelector(".r-n"),m=best(items[i]);s.value=m?m.sku_id:"__new";const f=()=>{n.style.display=s.value==="__new"?"grid":"none"};s.onchange=f;f()});
   $("#rv").scrollIntoView({behavior:"smooth"});
+  // SAVE: create supplier if new -> create new SKUs -> merge lines with the same SKU -> spread shipping/tax/fees
+  // across lines by value (tax goes to unit_duty, shipping to unit_freight, fees to unit_other) -> insert order ->
+  // insert lines (delete the order if that fails) -> insert deliveries when received.
+  // A negative fee (discount) is subtracted from the unit price because costs cannot be negative.
   $("#sv2").onclick=async()=>{
     const bt=$("#sv2");bt.disabled=true;const fail=m=>{if(m)msg(m,1);bt.disabled=false};
     const date=$("#od2").value;if(!date)return fail("Enter the order date.");
@@ -88,6 +120,9 @@ function review(d,kind){
     await loadData();scanPage();
   };
 }
+/*
+ * Boot the page.
+ */
 start("scan",scanPage);
 </script>
 </body>

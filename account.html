@@ -1,4 +1,11 @@
 <!doctype html>
+<!--
+  FILE: account.html = ACCOUNT placeholder. You said "later we will build an account feature".
+  Shows name and user id only.
+  Part of the Order Tracker. Loads: supabase-js (CDN), config.js, app.js, then the script below.
+  Dates are approximate: P1 planning ~Nov 16-17 2026, P2 first app ~Nov 17, P3 fixes from QA testing ~Nov 17-19, P4 page split, popups, receipt page ~Nov 19-20. See README 'How dates are given'.
+  Read README.md first and CODE_MAP.md to find any function.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -13,6 +20,9 @@
 <script src="config.js"></script>
 <script src="app.js"></script>
 <script>
+/*
+ * Placeholder. Future: change name (profiles.display_name), password reset, notification preferences.
+ */
 function accountPage(){$("#app").innerHTML=I("Your account.")+`<div class="card"><h2>${H(S.me.name||"Account")}</h2><p class="m">User ID: ${H(S.me.id)}</p><p>Account settings, such as your name and password, are coming soon.</p></div>`}
 start("account",accountPage);
 </script>

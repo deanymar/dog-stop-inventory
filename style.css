@@ -1,7 +1,15 @@
+/*
+ * FILE: style.css - the look of every page. [P2 first version, P3-P4 additions]
+ * DECISIONS: one accent colour (teal) and amber/red for warnings, per the "calm operations tool" direction;
+ * light and dark mode follow the device (prefers-color-scheme, MDN) through the CSS variables below;
+ * no CSS framework or web fonts, so nothing external can fail to load. Change colours ONLY in :root.
+ * Mobile: cards stack and tables scroll sideways inside their card (QR scans happen on phones).
+ */
 :root{--bg:#f4f5f2;--card:#fff;--ink:#1d2830;--mute:#5d6b75;--line:#d9ddd8;--a:#0f6b6b;--w:#c98a16;--d:#b3382c}
 @media(prefers-color-scheme:dark){:root{--bg:#141a1e;--card:#1c2429;--ink:#e6ebe8;--mute:#98a6ae;--line:#2d383f;--a:#46b5b0;--w:#e0a640;--d:#e8776b}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+/* Top bar: sticky so the menu and profile stay reachable on long pages. */
 header{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
 header b{font-size:17px}nav{display:flex;gap:4px;flex:1;flex-wrap:wrap}
 nav a{padding:6px 10px;border-radius:6px;color:var(--ink);text-decoration:none}
@@ -29,18 +37,23 @@ svg{width:100%;height:auto}
 table{border-collapse:collapse;width:100%;font-size:13px}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
 .al{border-left:4px solid var(--d)}
+/* Green/red message bar. At the TOP since Nov 20: the bottom was easy to miss. */
 #msg{position:fixed;top:64px;left:50%;transform:translateX(-50%);padding:8px 14px;border-radius:6px;color:#fff;z-index:9}
 #msg:empty{display:none}#msg.ok{background:var(--a)}#msg.bad{background:var(--d)}
 .sites{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
 .sites .card{text-align:center;break-inside:avoid}.sites .q{display:flex;justify-content:center;margin:8px 0}
+/* Chart hover box (see tooltip code in app.js). */
 #tip{position:fixed;display:none;background:var(--ink);color:var(--bg);padding:4px 8px;border-radius:6px;font-size:12px;pointer-events:none;z-index:20}
 .hit{cursor:pointer}.ed,.ed2,.edv{padding:2px 6px;min-height:0;border:none;background:none;color:var(--a)}.del,.xdel{padding:2px 6px;min-height:0;border:none;background:none;color:var(--d)}
+/* Profile button and dropdown on the RIGHT of the bar (moved from the left on request, Nov 20). */
 .pwrap{position:relative}.pfb{border-radius:50%;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center}
 .pmenu{display:none;position:absolute;right:0;top:44px;min-width:200px;max-width:260px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px;box-shadow:0 6px 20px rgba(0,0,0,.15);z-index:30}
 .pmenu.open{display:block}.pmenu a,.pmenu .pn{display:block;padding:8px 10px;border-radius:6px;color:var(--ink);text-decoration:none}
 .pmenu a:hover{background:var(--bg)}.pmenu .pn{font-weight:600;word-break:break-all;border-bottom:1px solid var(--line);border-radius:0;margin-bottom:4px}
+/* Printing QR labels: hide menu and anything marked .noprint. */
 @media print{header,.noprint{display:none}body{background:#fff}}
 
+/* On-screen confirmation window (ask() in app.js). Added Nov 20 to replace browser popups. */
 .ov{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
 .mod{background:var(--card);border-radius:10px;padding:18px;max-width:420px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.3)}
 .mod h3{margin:0 0 8px;font-size:16px}.mod p{margin:0 0 14px;color:var(--mute);white-space:pre-line}

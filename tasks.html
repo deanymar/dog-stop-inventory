@@ -1,4 +1,11 @@
 <!doctype html>
+<!--
+  FILE: tasks.html = PENDING TASKS. The to-do list behind the red Tasks badge.
+  Reads/writes: pending_tasks. Hands a task to log.html through sessionStorage.
+  Part of the Order Tracker. Loads: supabase-js (CDN), config.js, app.js, then the script below.
+  Dates are approximate: P1 planning ~Nov 16-17 2026, P2 first app ~Nov 17, P3 fixes from QA testing ~Nov 17-19, P4 page split, popups, receipt page ~Nov 19-20. See README 'How dates are given'.
+  Read README.md first and CODE_MAP.md to find any function.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -14,6 +21,11 @@
 <script src="app.js"></script>
 <script>
 /* ---------- Pending tasks ---------- */
+/*
+ * Purpose [P1]: orders placed outside the system (phone, supplier portal) are easy to forget. A task is a reminder
+ * with an order number or note; "Log order" opens log.html with it pre-filled; saving the order marks the task done.
+ * Task label is shown as plain words (log_external_order -> Log external order), your request Nov 20.
+ */
 async function tasksPage(){
   const t=await Q(sb.from("pending_tasks").select("*").eq("status","open").order("created_at"))||[];
   $("#app").innerHTML=I("Orders placed outside this system that still need to be logged. The number on the Tasks badge is how many are open. Click Log order on a task to enter it.")+`<div class="card"><h2>Open tasks</h2>${t.length?t.map(x=>`<div class="bar" style="align-items:center;margin:0 0 8px"><span style="flex:1">${H(String(x.task_type||"task").replace(/_/g," ").replace(/^./,c=>c.toUpperCase()))}: ${H(x.reference||"no reference")}</span><button data-id="${x.task_id}" class="pri">Log order</button><button class="xdel" data-k="task_id" data-i="${x.task_id}" data-n="task ${H(x.reference||"with no reference")}" title="Delete" aria-label="Delete">${TRASH}</button></div>`).join(""):'<p class="m">Nothing pending. Add a task when an order is placed outside the system.</p>'}</div>
@@ -23,6 +35,9 @@ async function tasksPage(){
     const r=await W(sb.from("pending_tasks").insert({reference:$("#tr").value.trim(),sku_id:$("#ts").value||null,site_id:$("#tl").value||null,status:"open"}));
     if(r){msg("Task added.");refresh()}};
 }
+/*
+ * Boot the page.
+ */
 start("tasks",tasksPage);
 </script>
 </body>

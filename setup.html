@@ -1,4 +1,11 @@
 <!doctype html>
+<!--
+  FILE: setup.html = SETUP. Add and delete suppliers and SKUs.
+  Writes: suppliers, skus. (Sites are managed on sites.html.)
+  Part of the Order Tracker. Loads: supabase-js (CDN), config.js, app.js, then the script below.
+  Dates are approximate: P1 planning ~Nov 16-17 2026, P2 first app ~Nov 17, P3 fixes from QA testing ~Nov 17-19, P4 page split, popups, receipt page ~Nov 19-20. See README 'How dates are given'.
+  Read README.md first and CODE_MAP.md to find any function.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -14,6 +21,12 @@
 <script src="app.js"></script>
 <script>
 /* ---------- Setup: suppliers and SKUs ---------- */
+/*
+ * You noticed the first version had no way to add suppliers or SKUs [P3]. Add buttons stay grey until required
+ * boxes are filled. A duplicate shows "<code> was already added." (your wording). The unit dropdown has its own
+ * copy of the unit list (keep it in step with UNITS in app.js).
+ * SKU CODE = your own short unique product code. It is not the supplier's item number.
+ */
 function setupPage(){
   const li=(a,f,id,lab)=>a.length?`<table>${a.map(x=>`<tr><td>${H(f(x))}</td><td style="width:36px"><button class="xdel" data-k="${id}" data-i="${x[id]}" data-n="${H(lab+" "+f(x))}" title="Delete" aria-label="Delete">${TRASH}</button></td></tr>`).join("")}</table>`:'<p class="m">None yet.</p>';
   $("#app").innerHTML=I("Add the suppliers and products that appear on your orders. Do this once, then pick them from the Log order form.")+`<div class="two"><div class="card"><h2>Suppliers</h2>${li(S.sup,x=>x.name,"supplier_id","supplier")}<div class="g" style="margin-top:10px"><label>Supplier name<input id="sn"></label><label>Notes (optional)<input id="snt"></label></div><p><button class="pri" id="sa" disabled>Add supplier</button></p></div>
@@ -25,6 +38,9 @@ function setupPage(){
   $("#ka").onclick=async()=>{const c=$("#kc").value.trim(),d=$("#kd").value.trim();if(!c||!d)return msg("Enter the SKU code and a description.",1);
     const r=await W(sb.from("skus").insert({sku_code:c,description:d,unit_of_measure:$("#ku").value}),{dup:c+" was already added."});if(r){msg("SKU added.");await refresh()}};
 }
+/*
+ * Boot the page.
+ */
 start("setup",setupPage);
 </script>
 </body>
