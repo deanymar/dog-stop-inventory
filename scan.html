@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scan receipt · Order Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app"></main>
+<div id="msg"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+const SCHEMA='{"supplier":"","order_number":"","order_date":"YYYY-MM-DD","items":[{"description":"","code":"","quantity":1,"unit_price":0}],"shipping":0,"tax":0,"other_fees":0}';
+const rpt=t=>(t==="store"?"The attached image is a photo of a paper receipt from a store.":"The attached file or pasted text is an online order confirmation or receipt (for example from Amazon).")+" Read it and reply with ONLY one JSON object in exactly this shape, with no other text:\n"+SCHEMA+"\nRules: supplier is the store or website name. order_number is the order or receipt number, or empty if there is none. order_date is YYYY-MM-DD. List every purchased item in items. code is the item number, SKU or ASIN shown for that item, or empty. quantity is the number of units. unit_price is the price of ONE unit before tax, as a plain number. shipping, tax and other_fees are totals for the whole order; other_fees is negative for discounts. If something is not visible, use empty text or 0. Do not guess prices. Ignore card numbers and personal details.";
+
+function scanPage(){
+  $("#app").innerHTML=I("Turn a receipt into an order. Copy the prompt, give it to Claude with your receipt, paste Claude's reply here, check the details, then save.")+`<div class="card"><h2>1. What kind of receipt is it?</h2><div class="bar" style="margin:0"><label class="rd"><input type="radio" name="kind" value="online" checked> Online order (Amazon, etc.)</label><label class="rd"><input type="radio" name="kind" value="store"> Paper receipt from a store</label></div></div>
+  <div class="card"><h2>2. Copy this prompt into Claude</h2><p class="m">Open claude.ai, attach your screenshot, photo or PDF (or paste the email text), and paste this prompt. Then copy Claude's reply.</p><textarea id="pr" readonly rows="5"></textarea><p><button id="cp">Copy prompt</button></p></div>
+  <div class="card"><h2>3. Paste Claude's reply</h2><textarea id="rp" rows="6" placeholder="Paste the reply here"></textarea><p><button class="pri" id="rb2" disabled>Read receipt</button></p></div><div id="rv"></div>`;
+  const kind=()=>document.querySelector('input[name="kind"]:checked').value;
+  const setp=()=>{$("#pr").value=rpt(kind())};
+  document.querySelectorAll('input[name="kind"]').forEach(r=>r.onchange=setp);setp();
+  $("#cp").onclick=async()=>{try{await navigator.clipboard.writeText($("#pr").value);msg("Prompt copied.")}catch(e){$("#pr").select();msg("Select the text and copy it.",1)}};
+  $("#rp").oninput=()=>{$("#rb2").disabled=!$("#rp").value.trim()};
+  $("#rb2").onclick=()=>{const t=$("#rp").value,a=t.indexOf("{"),b=t.lastIndexOf("}");let d;
+    try{d=JSON.parse(t.slice(a,b+1))}catch(e){return msg("I could not read that. Paste Claude's whole reply, including the curly brackets.",1)}
+    review(d,kind())};
+}
+
+function review(d,kind){
+  const nm=s=>String(s==null?"":s).trim(),lc=s=>nm(s).toLowerCase();
+  const slug=s=>nm(s).toUpperCase().replace(/[^A-Z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,24);
+  const words=s=>new Set(lc(s).split(/[^a-z0-9]+/).filter(w=>w.length>2));
+  const score=(a,b)=>{const x=words(a),y=words(b);if(!x.size||!y.size)return 0;let n=0;x.forEach(w=>{if(y.has(w))n++});return n/Math.max(x.size,y.size)};
+  const items=(d.items||[]).map(x=>({desc:nm(x.description),code:nm(x.code),q:+x.quantity||1,p:+x.unit_price||0})).filter(x=>x.desc||x.code);
+  if(!items.length)return msg("No items found in that reply.",1);
+  const best=it=>{let b=null,bs=0;S.skus.forEach(k=>{const s=it.code&&lc(k.sku_code)===lc(it.code)?1:score(it.desc,k.description);if(s>bs){bs=s;b=k}});return bs>=.5?b:null};
+  const sn=lc(d.supplier),sm=S.sup.find(s=>lc(s.name)===sn)||S.sup.find(s=>sn&&(lc(s.name).includes(sn)||sn.includes(lc(s.name))));
+  const od=/^\d{4}-\d{2}-\d{2}$/.test(nm(d.order_date))?nm(d.order_date):today(),store=kind==="store";
+  $("#rv").innerHTML=`<div class="card"><h2>4. Check the details</h2><div class="g" data-enter="#sv2"><label>Supplier<select id="sup">${opt(S.sup,"supplier_id","name")}<option value="__new">+ New supplier</option></select></label><label id="snl" style="display:none">New supplier name<input id="sn" value="${H(nm(d.supplier))}"></label><label>Order number (from supplier)<input id="on2" value="${H(nm(d.order_number))}"></label><label>Order date<input type="date" id="od2" value="${od}"></label><label>Destination site<select id="si2">${opt(S.sites,"site_id","name")}</select></label></div></div>
+  ${items.map((it,i)=>`<div class="card li"><div class="g"><label>On the receipt<input class="r-d" value="${H(it.desc)}"></label><label>SKU<select class="r-s">${opt(S.skus,"sku_id",k=>k.sku_code+" "+k.description)}<option value="__new">+ New SKU</option></select></label><label>Quantity<input type="number" step="any" min="0" class="r-q" value="${it.q}"></label><label>Unit price<input type="number" step="any" min="0" class="r-p" value="${it.p}"></label></div><div class="g r-n" style="margin-top:8px"><label>New SKU code<input class="r-c" value="${H(it.code||slug(it.desc))}"></label><label>New SKU description<input class="r-x" value="${H(it.desc.slice(0,80))}"></label></div></div>`).join("")}
+  <div class="card"><h2>Costs for the whole order</h2><div class="g" data-enter="#sv2"><label>Shipping<input type="number" step="any" id="shp" value="${+d.shipping||0}"></label><label>Tax<input type="number" step="any" id="tax" value="${+d.tax||0}"></label><label>Other fees (discounts as negative)<input type="number" step="any" id="fee" value="${+d.other_fees||0}"></label></div><p class="m">These are spread across the lines in proportion to their value.</p></div>
+  <div class="card"><h2>Has it been received?</h2><div class="bar" style="margin:0"><label class="rd"><input type="radio" name="rc" value="yes" ${store?"checked":""}> Yes, received</label><label class="rd"><input type="radio" name="rc" value="no" ${store?"":"checked"}> Not yet</label><label>Arrival date<input type="date" id="ard" value="${od}"></label></div></div>
+  <button class="pri" id="sv2">Save order</button>`;
+  $("#sup").value=sm?sm.supplier_id:"__new";
+  const sw=()=>{$("#snl").style.display=$("#sup").value==="__new"?"flex":"none"};$("#sup").onchange=sw;sw();
+  document.querySelectorAll(".li").forEach((c,i)=>{const s=c.querySelector(".r-s"),n=c.querySelector(".r-n"),m=best(items[i]);s.value=m?m.sku_id:"__new";const f=()=>{n.style.display=s.value==="__new"?"grid":"none"};s.onchange=f;f()});
+  $("#rv").scrollIntoView({behavior:"smooth"});
+  $("#sv2").onclick=async()=>{
+    const bt=$("#sv2");bt.disabled=true;const fail=m=>{if(m)msg(m,1);bt.disabled=false};
+    const date=$("#od2").value;if(!date)return fail("Enter the order date.");
+    if(!$("#si2").value)return fail("Choose a destination site. Add one on the Sites page first if there are none.");
+    const rcv=document.querySelector('input[name="rc"]:checked').value==="yes",ard=$("#ard").value;
+    if(rcv&&(!ard||ard<date))return fail("The arrival date cannot be earlier than the order date.");
+    let sid=$("#sup").value,sname="";
+    if(sid==="__new"){sname=$("#sn").value.trim();if(!sname)return fail("Enter the supplier name.");
+      const r=await Q(sb.from("suppliers").insert({name:sname}).select().single(),{dup:sname+" already exists. Choose it from the list."});if(!r)return fail();sid=r.supplier_id;S.sup.push(r)}
+    else sname=(S.sup.find(x=>x.supplier_id==sid)||{}).name||"";
+    const L=[],made={};
+    for(const c of document.querySelectorAll(".li")){
+      const q=+c.querySelector(".r-q").value,p=+c.querySelector(".r-p").value,v=c.querySelector(".r-s").value;
+      if(!(q>0)||c.querySelector(".r-p").value==="")return fail("Every line needs a quantity and a unit price.");
+      let id;
+      if(v==="__new"){const code=c.querySelector(".r-c").value.trim(),desc=c.querySelector(".r-x").value.trim();
+        if(!code||!desc)return fail("Every new SKU needs a code and a description.");
+        if(made[code.toLowerCase()])id=made[code.toLowerCase()];
+        else{const r=await Q(sb.from("skus").insert({sku_code:code,description:desc,unit_of_measure:"each"}).select().single(),{dup:code+" already exists. Choose it from the SKU list instead."});if(!r)return fail();S.skus.push(r);id=made[code.toLowerCase()]=r.sku_id}
+      }else id=+v;
+      const e=L.find(x=>x.sku_id===id);
+      if(e){e.p=(e.q*e.p+q*p)/(e.q+q);e.q+=q}else L.push({sku_id:id,q,p});
+    }
+    const tot=L.reduce((a,l)=>a+l.q*l.p,0),qs=L.reduce((a,l)=>a+l.q,0),r4=n=>Math.round(n*1e4)/1e4;
+    const sh=(amt,l)=>r4(tot>0?amt*(l.q*l.p)/tot/l.q:amt/qs);
+    const shp=+$("#shp").value||0,tax=+$("#tax").value||0,fee=+$("#fee").value||0;
+    let on=$("#on2").value.trim();
+    if(!on)on=(sname||"R").replace(/[^A-Za-z0-9]+/g,"").slice(0,10)+"-"+date.replace(/-/g,"")+"-"+String(Date.now()).slice(-4);
+    const o=await Q(sb.from("orders").insert({order_number:on,supplier_id:+sid,site_id:+$("#si2").value,order_date:date}).select().single(),{dup:"Order "+on+" already exists for this supplier."});
+    if(!o)return fail();
+    const lines=L.map(l=>{const fo=sh(fee,l);return{order_id:o.order_id,sku_id:l.sku_id,quantity_ordered:l.q,unit_price:Math.max(0,r4(l.p+(fee<0?fo:0))),unit_freight:sh(shp,l),unit_duty:sh(tax,l),unit_other:fee<0?0:fo}});
+    const ins=await Q(sb.from("order_lines").insert(lines).select(),{chk:"Quantity must be more than 0 and costs cannot be negative."});
+    if(!ins){await sb.from("orders").delete().eq("order_id",o.order_id);return fail()}
+    if(rcv){const ok=await W(sb.from("inventory_records").insert(L.map(l=>({order_id:o.order_id,sku_id:l.sku_id,arrival_date:ard,quantity_received:l.q}))));
+      if(!ok){msg("The order was saved, but its deliveries were not. Record them on the site page.",1);return}}
+    msg("Order "+on+" saved"+(rcv?" and marked received.":"."));
+    await loadData();scanPage();
+  };
+}
+start("scan",scanPage);
+</script>
+</body>
+</html>

@@ -45,3 +45,5 @@ th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
 .mod{background:var(--card);border-radius:10px;padding:18px;max-width:420px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.3)}
 .mod h3{margin:0 0 8px;font-size:16px}.mod p{margin:0 0 14px;color:var(--mute);white-space:pre-line}
 .mb{display:flex;gap:8px;justify-content:flex-end}.dng{background:var(--d);border-color:var(--d);color:#fff;font-weight:600}
+textarea{width:100%;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
+.rd{flex-direction:row;align-items:center;gap:6px;font-size:14px;color:var(--ink)}

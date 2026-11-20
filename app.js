@@ -77,7 +77,7 @@ function login(){
   $("#in").onclick=async()=>{$("#in").disabled=true;const{error}=await sb.auth.signInWithPassword({email:$("#em").value.trim(),password:$("#pw").value});if(error){msg(error.message,1);$("#in").disabled=false}else location.reload()};
   $("#em").focus();
 }
-const NAV=[["index","Dashboard"],["log","Log order"],["history","Order history"],["tasks","Pending tasks"],["sites","Sites"],["setup","Setup"]];
+const NAV=[["index","Dashboard"],["log","Log order"],["scan","Scan receipt"],["history","Order history"],["tasks","Pending tasks"],["sites","Sites"],["setup","Setup"]];
 async function start(page,fn){
   PAGE=fn;
   const{data:{session}}=await sb.auth.getSession();
