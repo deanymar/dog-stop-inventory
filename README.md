@@ -69,6 +69,7 @@ A small web app for tracking supplier orders and stock at physical locations.
 | `style.css` | All styling |
 | `config.js` | Supabase URL and publishable key (the only file to edit when moving projects) |
 | `README.md`, `CODE_MAP.md`, `PROMPTS.md` | Documentation |
+| `tests/qa.js` | Automated smoke tests (see the header of the file) |
 
 No build step, no npm. Open any file in a text editor.
 
@@ -145,10 +146,13 @@ If only the website broke: re-upload the files (GitHub keeps full history under 
 | D19 | P4 | On-screen confirmation window instead of the browser popup | Your request |
 | D20 | P4 | Receipt scanning by copy and paste through claude.ai | Free Claude plans have no API access (checked in Anthropic support docs, Nov 20) |
 | D21 | P4 | Profile menu on the right side | Your correction ("a classic layout") |
+| D22 | P4 | Deleting a SITE that is in use offers "Delete site and its data" (orders, lines, deliveries, usage, tasks) after a popup listing the counts. Suppliers and SKUs in use stay blocked | You deleted a site's deliveries from its QR page but the site would not go, because orders still pointed at it. Sites are the only item where cascading is offered since history is not rewritten for other items |
 
 ## 9. Testing
 
-Use the QA plan (link in section 2). Parts that matter most: Part 7 (alerts) and Part 6 (building the lead-time history). The alert logic was **verified working** on test data: T-004 arrived late (15 days vs baseline 12, 3 over) and T-005 in transit overdue, while Supplier B and a different SKU correctly produced no alert.
+**Automated:** `tests/qa.js` (118 checks, simulated browser and fake database) passed on Nov 20 2026 after the page split. It cannot test your real Supabase rules.
+
+**Manual:** use the QA plan (link in section 2). Parts that matter most: Part 7 (alerts) and Part 6 (building the lead-time history). The alert logic was **verified working** on test data: T-004 arrived late (15 days vs baseline 12, 3 over) and T-005 in transit overdue, while Supplier B and a different SKU correctly produced no alert.
 
 Note: QA parts written before Nov 20 assume the old single-page app (`#site-test-room` addresses). Site pages are now `site.html?s=test-room`.
 

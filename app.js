@@ -94,7 +94,10 @@ const USE={supplier_id:async id=>[["orders",await cnt("orders","supplier_id",id)
  */
 function bindDel(){document.querySelectorAll(".xdel").forEach(b=>b.onclick=async e=>{
   e.stopPropagation();const k=b.dataset.k,id=+b.dataset.i,n=b.dataset.n;
-  const u=USE[k];if(u){const used=(await u(id)).filter(x=>x[1]>0);if(used.length){await ask("Can't delete "+n,"It is still used by "+used.map(x=>x[1]+" "+x[0]).join(", ")+". Remove or change those first.",{info:true});return}}
+  const u=USE[k];if(u){const used=(await u(id)).filter(x=>x[1]>0);if(used.length){const list=used.map(x=>x[1]+" "+x[0]).join(", ");
+    if(k!=="site_id"){await ask("Can't delete "+n,"It is still used by "+list+". Remove or change those first.",{info:true});return}
+    if(!await ask("Delete "+n+" and everything recorded at it?","It is still used by "+list+". Deleting it will PERMANENTLY delete all of that, including the lines and deliveries of those orders. This cannot be undone.",{ok:"Delete site and its data"}))return;
+    if(await cascadeSite(id)){msg(n+" and its data were deleted.");await refresh()}return}}
   if(!await ask("Are you sure you want to delete "+n+"?",b.dataset.x||"This cannot be undone."))return;
   const FK={fk:"It can't be deleted because it is used by orders, deliveries or usage. Remove those first."};let ok=false;
   if(k==="order_id"){
@@ -104,6 +107,33 @@ function bindDel(){document.querySelectorAll(".xdel").forEach(b=>b.onclick=async
   }else{const tb={supplier_id:"suppliers",sku_id:"skus",site_id:"sites",task_id:"pending_tasks",inventory_id:"inventory_records",usage_id:"usage_events"}[k];ok=await D(sb.from(tb).delete().eq(k,id),FK)}
   if(ok){msg(n+" deleted.");await refresh()}
 })}
+/*
+ * cascadeSite(id): delete a site TOGETHER with everything recorded at it. [P4, ~Nov 20 2026]
+ * WHY: you deleted the site's deliveries and usage from its QR page but the site would not go away, because
+ * ORDERS still named it as their destination (the database links them, error 23503). For test clean-up that is
+ * frustrating, so for SITES ONLY the popup now offers "Delete site and its data" with the counts spelled out.
+ * Suppliers and SKUs keep the safer "can't delete, it is in use" rule (deleting them would silently rewrite history).
+ * ORDER OF DELETES matters because of foreign keys: deliveries -> (clear task links) -> order lines -> orders ->
+ * usage -> tasks -> site assignments -> the site itself. The browser cannot run a database transaction, so a failure
+ * part-way leaves earlier steps done; the red bar says which step failed and you can simply try again.
+ * site_assignments may not exist yet (it is created with the security prompt), so errors there are ignored.
+ */
+async function cascadeSite(id){
+  const er=async(p,skip)=>{const{error}=await p;if(error&&!skip){msg(nice(error),1);return false}return true};
+  const{data:os,error:e0}=await sb.from("orders").select("order_id").eq("site_id",id);
+  if(e0){msg(nice(e0),1);return false}
+  const ids=(os||[]).map(o=>o.order_id);
+  if(ids.length){
+    if(!await er(sb.from("inventory_records").delete().in("order_id",ids)))return false;
+    if(!await er(sb.from("pending_tasks").update({completed_order_id:null}).in("completed_order_id",ids)))return false;
+    if(!await er(sb.from("order_lines").delete().in("order_id",ids)))return false;
+    if(!await er(sb.from("orders").delete().in("order_id",ids)))return false;
+  }
+  if(!await er(sb.from("usage_events").delete().eq("site_id",id)))return false;
+  if(!await er(sb.from("pending_tasks").delete().eq("site_id",id)))return false;
+  await er(sb.from("site_assignments").delete().eq("site_id",id),true);
+  return D(sb.from("sites").delete().eq("site_id",id),{fk:"Something else still points at this site, so it could not be deleted."});
+}
 /*
  * PROFILE MENU open/close, and the global ENTER KEY rule below. [P3]
  * You asked: "anytime there is a button I want to press Enter". Rule: Enter inside a text/number/date box

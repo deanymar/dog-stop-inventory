@@ -30,7 +30,7 @@ Every page file has the same skeleton: `<main id="app">` (the page draws itself 
 | Plain-English errors | `app.js`: `nice()` |
 | Reads vs plain writes | `app.js`: `Q()` (returns rows) and `W()` (true/false) |
 | Update/delete that must change a row | `app.js`: `D()` |
-| Every trash button | `app.js`: `bindDel()`, pre-checks in `USE` |
+| Every trash button | `app.js`: `bindDel()`, pre-checks in `USE`; deleting a site with data: `cascadeSite()` |
 | Confirmation window | `app.js`: `ask()` |
 | Enter key rule, Escape, profile menu toggle | `app.js` (listeners near `bindDel`) |
 | Chart hover box | `app.js` (`tip`, `tt`); points marked `data-t` in `index.html` `line()` |
@@ -63,7 +63,7 @@ Every page file has the same skeleton: `<main id="app">` (the page draws itself 
 
 **Task -> order.** `tasks.html` stores the task JSON in `sessionStorage.task` and opens `log.html`; `logPage()` reads it back. (Pages cannot share JavaScript variables.)
 
-**Delete anything.** Trash button (`class xdel`, data-k/i/n/x) -> `bindDel()` -> `USE[k]` counts what uses it -> in use: info popup and stop -> otherwise `ask()` -> delete (orders: deliveries, lines, then order) -> `D()` checks a row really went -> green bar -> `refresh()`.
+**Delete anything.** Trash button (`class xdel`, data-k/i/n/x) -> `bindDel()` -> `USE[k]` counts what uses it -> in use: info popup and stop (SITES instead offer "Delete site and its data", which runs `cascadeSite()`) -> otherwise `ask()` -> delete (orders: deliveries, lines, then order) -> `D()` checks a row really went -> green bar -> `refresh()`.
 
 **QR scan.** Camera opens `.../site.html?s=<site_code>` -> sign in (if needed) -> `sitePage(code)`: find the site in `S.sites`, load that site's orders, then deliveries by order ids, then usage -> stock = deliveries - usage.
 
@@ -96,6 +96,7 @@ Every page file has the same skeleton: `<main id="app">` (the page draws itself 
 | "Nothing was deleted" | Delete policy missing for your role | Supabase policies |
 | No alerts when you expect them | Fewer than 3 arrived orders for that SKU **and supplier**; views old or wrong | Order history (check lead times); `v_lead_time_alerts`; PROMPTS.md section E |
 | Alerts table shows odd columns | It prints whatever the view returns | `draw()` in `index.html` (hides names ending `_id`, rounds numbers) |
+| Site will not delete | It is used by orders/usage/tasks; the popup lists them; "Delete site and its data" runs `cascadeSite()`. If it still fails, a delete policy is missing | `bindDel()`, `cascadeSite()` in app.js |
 | Duplicate deliveries | Double click before the Save button disabled; or two saves | site.html "Recent deliveries" (edit/delete) |
 | QR code opens a 404 | Repo or file names changed; label printed from the old version | `sitePath()` in app.js, Pages settings |
 | Dashboard shows $0 | Date range excludes the orders (default last 90 days) | the From/To boxes |
@@ -107,7 +108,7 @@ Every page file has the same skeleton: `<main id="app">` (the page draws itself 
 
 `#app` page content - `#msg` message bar - `#nav` menu - `#badge`/`#n` Tasks badge - `#pfb`/`#pmenu` profile button and menu - `.xdel` any delete button - `.del` remove a not-yet-saved line - `.ed` / `.ed2` / `.edv` edit buttons (history line / new line / delivery) - `[data-enter]` which button Enter should click - `[data-t]` hover tooltip text - `#sv` Save order (log) - `#sv2` Save order (scan) - `#al` Add line - `#nsa`/`#nka` inline add supplier/SKU - `#hq #hs #hst #hrs` history search, supplier, status, reset.
 
-## 8. Function index (generated from the files on Nov 20 2026; line numbers move when code changes)
+## 8. Function index (generated Nov 20 2026; line numbers move when code changes)
 
 | File | Line | Name | Kind |
 |---|---|---|---|
@@ -123,22 +124,23 @@ Every page file has the same skeleton: `<main id="app">` (the page draws itself 
 | `app.js` | 81 | `cnt` | value/arrow function |
 | `app.js` | 87 | `USE` | value/arrow function |
 | `app.js` | 95 | `bindDel()` | function |
-| `app.js` | 131 | `msg()` | function |
-| `app.js` | 140 | `nice()` | function |
-| `app.js` | 152 | `Q()` | function |
-| `app.js` | 157 | `W()` | function |
-| `app.js` | 164 | `UNITS` | value/arrow function |
-| `app.js` | 169 | `EDIT` | value/arrow function |
-| `app.js` | 170 | `TRASH` | value/arrow function |
-| `app.js` | 176 | `sitePath()` | function |
-| `app.js` | 184 | `ask()` | function |
-| `app.js` | 199 | `loadData()` | function |
-| `app.js` | 206 | `PAGE` | value/arrow function |
-| `app.js` | 210 | `refresh()` | function |
-| `app.js` | 214 | `badge()` | function |
-| `app.js` | 219 | `login()` | function |
-| `app.js` | 228 | `NAV` | value/arrow function |
-| `app.js` | 234 | `start()` | function |
+| `app.js` | 121 | `cascadeSite()` | function |
+| `app.js` | 161 | `msg()` | function |
+| `app.js` | 170 | `nice()` | function |
+| `app.js` | 182 | `Q()` | function |
+| `app.js` | 187 | `W()` | function |
+| `app.js` | 194 | `UNITS` | value/arrow function |
+| `app.js` | 199 | `EDIT` | value/arrow function |
+| `app.js` | 200 | `TRASH` | value/arrow function |
+| `app.js` | 206 | `sitePath()` | function |
+| `app.js` | 214 | `ask()` | function |
+| `app.js` | 229 | `loadData()` | function |
+| `app.js` | 236 | `PAGE` | value/arrow function |
+| `app.js` | 240 | `refresh()` | function |
+| `app.js` | 244 | `badge()` | function |
+| `app.js` | 249 | `login()` | function |
+| `app.js` | 258 | `NAV` | value/arrow function |
+| `app.js` | 264 | `start()` | function |
 | `index.html` | 28 | `dash()` | function |
 | `index.html` | 38 | `line()` | function |
 | `index.html` | 49 | `draw()` | function |
@@ -153,4 +155,5 @@ Every page file has the same skeleton: `<main id="app">` (the page draws itself 
 | `setup.html` | 30 | `setupPage()` | function |
 | `site.html` | 30 | `sitePage()` | function |
 | `account.html` | 26 | `accountPage()` | function |
+
 (Regenerate by searching each file for lines starting with `function`, `async function`, `const` or `let`.)
