@@ -21,7 +21,7 @@
  * profile button (right side, a classic layout: you asked for this [P3-P4]). It is hidden
  * until sign-in succeeds (start() shows it). SOURCE: MDN insertAdjacentHTML.
  */
-document.body.insertAdjacentHTML("afterbegin",'<header><b>Order Tracker</b><nav id="nav"></nav><a id="badge" href="tasks.html" class="noprint" style="color:inherit;text-decoration:none">Tasks<span class="badge" id="n">0</span></a><div class="pwrap noprint" id="pwrap" style="display:none"><button class="pfb" id="pfb" aria-label="Profile menu" aria-haspopup="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></button><div class="pmenu" id="pmenu"></div></div></header>');
+document.body.insertAdjacentHTML("afterbegin",'<header><button class="hb noprint" id="hb" aria-label="Menu" aria-expanded="false" aria-controls="nav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><b>Order Tracker</b><nav id="nav"></nav><a id="badge" href="tasks.html" class="noprint" style="color:inherit;text-decoration:none">Tasks<span class="badge" id="n">0</span></a><div class="pwrap noprint" id="pwrap" style="display:none"><button class="pfb" id="pfb" aria-label="Profile menu" aria-haspopup="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></button><div class="pmenu" id="pmenu"></div></div></header>');
 /*
  * $ = short for document.querySelector. H = escapes text before it goes into HTML so
  * a name like <b>x</b> cannot inject markup (XSS). [P2]
@@ -108,6 +108,16 @@ function bindDel(){document.querySelectorAll(".xdel").forEach(b=>b.onclick=async
   if(ok){msg(n+" deleted.");await refresh()}
 })}
 /*
+ * logUse(event, extra): quietly record an AI-related event in the ai_usage_log table. [P5, ~Nov 21 2026]
+ * WHY: you asked to track the prompts used in the app. Today the receipt scanner runs on claude.ai by copy and paste, so the
+ * app can only COUNT events (prompt copied, receipt saved). It cannot see tokens or cost: those happen inside your claude.ai
+ * plan. If scanning later goes through the Claude API, the API reply includes input and output token counts; the same table has
+ * columns ready for them (source = 'api', input_tokens, output_tokens, cost_usd) and the dashboard card fills in automatically.
+ * It NEVER shows an error and never blocks the user: if the table does not exist yet, the insert simply fails unseen.
+ * The database sets created_by (the signed-in user) and created_at itself.
+ */
+async function logUse(event,extra){try{await sb.from("ai_usage_log").insert(Object.assign({event:event,source:"copy_paste"},extra||{}))}catch(e){}}
+/*
  * cascadeSite(id): delete a site TOGETHER with everything recorded at it. [P4, ~Nov 20 2026]
  * WHY: you deleted the site's deliveries and usage from its QR page but the site would not go away, because
  * ORDERS still named it as their destination (the database links them, error 23503). For test clean-up that is
@@ -140,14 +150,20 @@ async function cascadeSite(id){
  * clicks the nearest [data-enter] target, else the first enabled primary button in the same card or bar.
  * Excludes buttons, radios, checkboxes. Delete/edit icon buttons are never auto-clicked.
  */
-$("#pfb").onclick=e=>{e.stopPropagation();$("#pmenu").classList.toggle("open")};
-document.addEventListener("click",()=>$("#pmenu").classList.remove("open"));
+/* HAMBURGER [P4, ~Nov 21 2026]: on phones (CSS shows the button under 800px wide) the nav links collapse into a
+ * dropdown. WHY: you sent a phone screenshot where seven links wrapped into a tall block and pushed the profile icon
+ * down; you asked for all options in a hamburger on every page. One change here covers every page because the bar is shared.
+ * The nav and the profile menu close each other so only one is open. aria-expanded keeps screen readers informed (MDN ARIA). */
+const closeNav=()=>{$("#nav").classList.remove("open");$("#hb").setAttribute("aria-expanded","false")};
+$("#hb").onclick=e=>{e.stopPropagation();$("#pmenu").classList.remove("open");const o=$("#nav").classList.toggle("open");$("#hb").setAttribute("aria-expanded",o?"true":"false")};
+$("#pfb").onclick=e=>{e.stopPropagation();closeNav();$("#pmenu").classList.toggle("open")};
+document.addEventListener("click",()=>{$("#pmenu").classList.remove("open");closeNav()});
 /*
  * Capture of Escape (closes the menu) and Enter (see rule above). Selects are skipped on purpose: Enter
  * has its own meaning there. Table rows being edited set data-enter so Enter saves the row.
  */
 document.addEventListener("keydown",e=>{
-  if(e.key==="Escape")$("#pmenu").classList.remove("open");
+  if(e.key==="Escape"){$("#pmenu").classList.remove("open");closeNav()}
   if(e.key!=="Enter"||e.isComposing)return;
   const t=e.target;if(!t||t.tagName!=="INPUT"||["button","checkbox","radio","submit"].includes(t.type))return;
   const sc=t.closest("[data-enter],.card,.bar");if(!sc)return;
@@ -213,7 +229,7 @@ function sitePath(c){return location.origin+location.pathname.replace(/[^\/]*$/,
  */
 function ask(title,body,o){o=o||{};return new Promise(res=>{
   const d=document.createElement("div");d.className="ov";
-  d.innerHTML=`<div class="mod" role="dialog" aria-modal="true"><h3>${H(title)}</h3>${body?`<p>${H(body)}</p>`:""}<div class="mb">${o.info?"":'<button id="mn">Cancel</button>'}<button id="my" class="${o.info?"pri":"dng"}">${H(o.ok||(o.info?"OK":"Delete"))}</button></div></div>`;
+  d.innerHTML=`<div class="mod" role="dialog" aria-modal="true"><h3>${H(title)}</h3>${body?`<p>${H(body)}</p>`:""}<div class="mb">${o.info?"":'<button id="mn">Cancel</button>'}<button id="my" class="${o.info||o.safe?"pri":"dng"}">${H(o.ok||(o.info?"OK":"Delete"))}</button></div></div>`;
   document.body.appendChild(d);
   const kd=e=>{if(e.key==="Escape"){e.stopPropagation();done(false)}};
   const done=v=>{d.remove();document.removeEventListener("keydown",kd,true);res(v)};
@@ -246,10 +262,23 @@ async function badge(){const{count}=await sb.from("pending_tasks").select("*",{c
  * Sign-in form [P2]. Enter key works through the global rule. After success the page reloads
  * so start() runs again with a session. SOURCE: supabase-js auth.signInWithPassword.
  */
+/*
+ * toEmail(u): turns what a person types into the address Supabase stores. [P5, ~Nov 21 2026]
+ * "Maria" -> maria@<CONFIG.AUTH_DOMAIN>. Anything containing "@" is used as typed, so your own real-email admin
+ * login keeps working. Lower-cased so "Maria" and "maria" are the same person. WHY not look the email up from the
+ * username in the database: that needs a function callable by anyone, which lets strangers test which usernames exist.
+ * The same function is used by people.html when creating accounts, so the two can never disagree.
+ */
+function toEmail(u){u=String(u||"").trim().toLowerCase();return u.indexOf("@")>=0?u:u+"@"+(CONFIG.AUTH_DOMAIN||"staff.dogstop.invalid")}
 function login(){
-  $("#app").innerHTML=`<div class="card" style="max-width:360px;margin:40px auto"><h2>Sign in</h2><div class="g" style="grid-template-columns:1fr"><label>Email<input id="em" type="email" autocomplete="username"></label><label>Password<input id="pw" type="password" autocomplete="current-password"></label><button class="pri" id="in">Sign in</button></div></div>`;
-  $("#in").onclick=async()=>{$("#in").disabled=true;const{error}=await sb.auth.signInWithPassword({email:$("#em").value.trim(),password:$("#pw").value});if(error){msg(error.message,1);$("#in").disabled=false}else location.reload()};
-  $("#em").focus();
+  $("#app").innerHTML=`<div class="card" style="max-width:360px;margin:40px auto"><h2>Sign in</h2><div class="g" style="grid-template-columns:1fr"><label>Username<input id="em" type="text" autocapitalize="none" autocorrect="off" autocomplete="username"></label><label>Password<input id="pw" type="password" autocomplete="current-password"></label><button class="pri" id="in">Sign in</button></div></div>`;
+  $("#in").onclick=async()=>{const u=$("#em").value.trim();if(!u||!$("#pw").value)return msg("Enter your username and password.",1);
+    $("#in").disabled=true;
+    const{error}=await sb.auth.signInWithPassword({email:toEmail(u),password:$("#pw").value});
+    if(error){msg(/invalid login/i.test(error.message)?"Wrong username or password.":error.message,1);$("#in").disabled=false;return}
+    await sb.rpc("record_login");   /* stamps last_login in the database; a failure here must never block sign-in */
+    location.reload()};
+  $("#pwrap").style.display="none";$("#em").focus();
 }
 /*
  * Menu order. Each entry is [file name without .html, label]. To add a page: create <name>.html,
@@ -265,11 +294,19 @@ async function start(page,fn){
   PAGE=fn;
   const{data:{session}}=await sb.auth.getSession();
   if(!session)return login();
-  const p=await Q(sb.from("profiles").select("role,display_name").eq("user_id",session.user.id).maybeSingle());
-  role=p?p.role:"none";S.me={id:session.user.id,name:p&&p.display_name?p.display_name.trim():""};
+  /* Profile read [P5]: asks for the new account columns first. If the database has not been migrated yet (error), it falls
+   * back to the two old columns so the app keeps working during the upgrade. Run the database prompts BEFORE relying on People. */
+  let pr=await sb.from("profiles").select("role,display_name,first_name,last_name,username,position,employment_date,last_login,is_active").eq("user_id",session.user.id).maybeSingle();
+  if(pr.error)pr=await sb.from("profiles").select("role,display_name").eq("user_id",session.user.id).maybeSingle();
+  const p=pr.data;
+  if(p&&p.is_active===false){await sb.auth.signOut();login();msg("This account is turned off. Ask a manager.",1);return}
+  role=p?p.role:"none";
+  const full=p?((p.first_name||"")+" "+(p.last_name||"")).trim():"";
+  S.me={id:session.user.id,name:full||(p&&p.display_name?p.display_name.trim():""),username:(p&&p.username)||"",p:p||{}};
   const staff=role==="site_staff";
   if(staff&&!["sites","site","account"].includes(page))return location.replace("sites.html");
-  $("#nav").innerHTML=(staff?[["sites","Sites"]]:NAV).map(x=>`<a href="${x[0]}.html" class="${page===x[0]||(page==="site"&&x[0]==="sites")?"on":""}">${x[1]}</a>`).join("");
+  if(page==="people"&&role!=="admin")return location.replace("index.html");   /* People is admin only (the database enforces it too) */
+  $("#nav").innerHTML=(staff?[["sites","Sites"]]:NAV.concat(role==="admin"?[["people","People"]]:[])).map(x=>`<a href="${x[0]}.html" class="${page===x[0]||(page==="site"&&x[0]==="sites")?"on":""}">${x[1]}</a>`).join("");
   $("#badge").style.display=staff?"none":"";
   $("#pmenu").innerHTML=`<div class="pn">${H(S.me.name||S.me.id)}</div><a href="account.html">Account</a><a href="#" id="out">Sign out</a>`;
   $("#pwrap").style.display="block";

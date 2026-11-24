@@ -44,7 +44,7 @@ function scanPage(){
   const kind=()=>document.querySelector('input[name="kind"]:checked').value;
   const setp=()=>{$("#pr").value=rpt(kind())};
   document.querySelectorAll('input[name="kind"]').forEach(r=>r.onchange=setp);setp();
-  $("#cp").onclick=async()=>{try{await navigator.clipboard.writeText($("#pr").value);msg("Prompt copied.")}catch(e){$("#pr").select();msg("Select the text and copy it.",1)}};
+  $("#cp").onclick=async()=>{try{await navigator.clipboard.writeText($("#pr").value);msg("Prompt copied.")}catch(e){$("#pr").select();msg("Select the text and copy it.",1)};logUse("prompt_copied",{receipt_type:kind()})};
   $("#rp").oninput=()=>{$("#rb2").disabled=!$("#rp").value.trim()};
   $("#rb2").onclick=()=>{const t=$("#rp").value,a=t.indexOf("{"),b=t.lastIndexOf("}");let d;
     try{d=JSON.parse(t.slice(a,b+1))}catch(e){return msg("I could not read that. Paste Claude's whole reply, including the curly brackets.",1)}
@@ -57,8 +57,24 @@ function scanPage(){
  * Supplier: exact name, else one contains the other, else "+ New supplier" (PetSmart case you described).
  * Received question: store receipt defaults Yes (arrival = order date), online defaults Not yet.
  */
-function review(d,kind){
+/*
+ * LEARNING LOOP [P5, ~Nov 21 2026]. You asked: after a receipt is read and you correct it, can the system get better?
+ * HONEST SCOPE: the Claude model itself does not learn from your corrections, and this page cannot change how well receipts are READ.
+ * What CAN improve, and is built here, is how well the app MATCHES what was read to YOUR suppliers and SKUs:
+ *   1) item_aliases: every time you save, "what the receipt called the item" -> the SKU you chose is remembered per supplier.
+ *      Next receipt from that supplier, the same wording preselects that SKU (hint says "Matched from your past choices").
+ *   2) supplier_aliases: "PETSMART #1234 Plano" -> your supplier "PetSmart" is remembered the same way.
+ *   3) receipt_scans: every review is logged with what Claude read (original), each correction (edits), how many items were
+ *      matched and how many of those you left alone. The dashboard shows corrections per receipt and % matched correctly,
+ *      so you can SEE whether it is getting better, and the edits are the evidence for improving the prompt later by hand.
+ * Order of preference when matching an item: learned alias (this supplier) > item code equals a SKU code > word-overlap guess > new SKU.
+ * Everything is advisory: you always review before saving. Learning writes are silent and never block saving an order.
+ */
+async function review(d,kind){
   const nm=s=>String(s==null?"":s).trim(),lc=s=>nm(s).toLowerCase();
+  const nk=s=>lc(s).replace(/[^a-z0-9]+/g," ").trim();   /* normalised key: lower case, punctuation removed, so "Beef Treats, 12oz" == "beef treats 12oz" */
+  const ial=await sb.from("item_aliases").select("supplier_id,alias,sku_id"),sal=await sb.from("supplier_aliases").select("alias,supplier_id");
+  const IA=ial.error?[]:(ial.data||[]),SA=sal.error?[]:(sal.data||[]);   /* tables missing = no memory yet, not an error */
   const slug=s=>nm(s).toUpperCase().replace(/[^A-Z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,24);
   const words=s=>new Set(lc(s).split(/[^a-z0-9]+/).filter(w=>w.length>2));
   const score=(a,b)=>{const x=words(a),y=words(b);if(!x.size||!y.size)return 0;let n=0;x.forEach(w=>{if(y.has(w))n++});return n/Math.max(x.size,y.size)};
@@ -66,16 +82,24 @@ function review(d,kind){
   if(!items.length)return msg("No items found in that reply.",1);
   // Word-overlap score, words of 3+ letters. Deliberately simple and always editable; wrong guesses are cheap to fix on screen.
   const best=it=>{let b=null,bs=0;S.skus.forEach(k=>{const s=it.code&&lc(k.sku_code)===lc(it.code)?1:score(it.desc,k.description);if(s>bs){bs=s;b=k}});return bs>=.5?b:null};
-  const sn=lc(d.supplier),sm=S.sup.find(s=>lc(s.name)===sn)||S.sup.find(s=>sn&&(lc(s.name).includes(sn)||sn.includes(lc(s.name))));
+  const sn=lc(d.supplier),sa0=SA.find(a=>a.alias===nk(d.supplier)),sm=(sa0&&S.sup.find(s=>s.supplier_id==sa0.supplier_id))||S.sup.find(s=>lc(s.name)===sn)||S.sup.find(s=>sn&&(lc(s.name).includes(sn)||sn.includes(lc(s.name))));
   const od=/^\d{4}-\d{2}-\d{2}$/.test(nm(d.order_date))?nm(d.order_date):today(),store=kind==="store";
+  /* pick(): the best SKU guess for one receipt line and HOW it was found (shown to you as a hint; amber means check it) */
+  const pick=(it,sid)=>{const keys=[it.code&&nk(it.code),nk(it.desc)].filter(Boolean);
+    const L1=IA.find(a=>sid&&a.supplier_id==sid&&keys.indexOf(a.alias)>=0);
+    if(L1){const k=S.skus.find(s=>s.sku_id==L1.sku_id);if(k)return{k:k,how:"learned"}}
+    const c=it.code&&S.skus.find(s=>lc(s.sku_code)===lc(it.code));if(c)return{k:c,how:"code"};
+    const g=best(it);return g?{k:g,how:"guess"}:{k:null,how:"new"}};
+  const P=items.map(it=>pick(it,sm?sm.supplier_id:null));
+  const HINT={learned:"Matched from your past choices",code:"Matched by item code",guess:"Best guess from the words. Please check it",new:"Not found. A new SKU will be created"};
   $("#rv").innerHTML=`<div class="card"><h2>4. Check the details</h2><div class="g" data-enter="#sv2"><label>Supplier<select id="sup">${opt(S.sup,"supplier_id","name")}<option value="__new">+ New supplier</option></select></label><label id="snl" style="display:none">New supplier name<input id="sn" value="${H(nm(d.supplier))}"></label><label>Order number (from supplier)<input id="on2" value="${H(nm(d.order_number))}"></label><label>Order date<input type="date" id="od2" value="${od}"></label><label>Destination site<select id="si2">${opt(S.sites,"site_id","name")}</select></label></div></div>
-  ${items.map((it,i)=>`<div class="card li"><div class="g"><label>On the receipt<input class="r-d" value="${H(it.desc)}"></label><label>SKU<select class="r-s">${opt(S.skus,"sku_id",k=>k.sku_code+" "+k.description)}<option value="__new">+ New SKU</option></select></label><label>Quantity<input type="number" step="any" min="0" class="r-q" value="${it.q}"></label><label>Unit price<input type="number" step="any" min="0" class="r-p" value="${it.p}"></label></div><div class="g r-n" style="margin-top:8px"><label>New SKU code<input class="r-c" value="${H(it.code||slug(it.desc))}"></label><label>New SKU description<input class="r-x" value="${H(it.desc.slice(0,80))}"></label></div></div>`).join("")}
+  ${items.map((it,i)=>`<div class="card li"><p class="m" style="margin:0 0 8px${P[i].how==="guess"||P[i].how==="new"?";color:var(--w)":""}">${HINT[P[i].how]}</p><div class="g"><label>On the receipt<input class="r-d" value="${H(it.desc)}"></label><label>SKU<select class="r-s">${opt(S.skus,"sku_id",k=>k.sku_code+" "+k.description)}<option value="__new">+ New SKU</option></select></label><label>Quantity<input type="number" step="any" min="0" class="r-q" value="${it.q}"></label><label>Unit price<input type="number" step="any" min="0" class="r-p" value="${it.p}"></label></div><div class="g r-n" style="margin-top:8px"><label>New SKU code<input class="r-c" value="${H(it.code||slug(it.desc))}"></label><label>New SKU description<input class="r-x" value="${H(it.desc.slice(0,80))}"></label></div></div>`).join("")}
   <div class="card"><h2>Costs for the whole order</h2><div class="g" data-enter="#sv2"><label>Shipping<input type="number" step="any" id="shp" value="${+d.shipping||0}"></label><label>Tax<input type="number" step="any" id="tax" value="${+d.tax||0}"></label><label>Other fees (discounts as negative)<input type="number" step="any" id="fee" value="${+d.other_fees||0}"></label></div><p class="m">These are spread across the lines in proportion to their value.</p></div>
   <div class="card"><h2>Has it been received?</h2><div class="bar" style="margin:0"><label class="rd"><input type="radio" name="rc" value="yes" ${store?"checked":""}> Yes, received</label><label class="rd"><input type="radio" name="rc" value="no" ${store?"":"checked"}> Not yet</label><label>Arrival date<input type="date" id="ard" value="${od}"></label></div></div>
   <button class="pri" id="sv2">Save order</button>`;
   $("#sup").value=sm?sm.supplier_id:"__new";
   const sw=()=>{$("#snl").style.display=$("#sup").value==="__new"?"flex":"none"};$("#sup").onchange=sw;sw();
-  document.querySelectorAll(".li").forEach((c,i)=>{const s=c.querySelector(".r-s"),n=c.querySelector(".r-n"),m=best(items[i]);s.value=m?m.sku_id:"__new";const f=()=>{n.style.display=s.value==="__new"?"grid":"none"};s.onchange=f;f()});
+  document.querySelectorAll(".li").forEach((c,i)=>{const s=c.querySelector(".r-s"),n=c.querySelector(".r-n"),m=P[i].k;s.value=m?m.sku_id:"__new";const f=()=>{n.style.display=s.value==="__new"?"grid":"none"};s.onchange=f;f()});
   $("#rv").scrollIntoView({behavior:"smooth"});
   // SAVE: create supplier if new -> create new SKUs -> merge lines with the same SKU -> spread shipping/tax/fees
   // across lines by value (tax goes to unit_duty, shipping to unit_freight, fees to unit_other) -> insert order ->
@@ -91,7 +115,7 @@ function review(d,kind){
     if(sid==="__new"){sname=$("#sn").value.trim();if(!sname)return fail("Enter the supplier name.");
       const r=await Q(sb.from("suppliers").insert({name:sname}).select().single(),{dup:sname+" already exists. Choose it from the list."});if(!r)return fail();sid=r.supplier_id;S.sup.push(r)}
     else sname=(S.sup.find(x=>x.supplier_id==sid)||{}).name||"";
-    const L=[],made={};
+    const L=[],made={},FIN=[];   /* FIN = your final choice per receipt line, in order, for the learning step */
     for(const c of document.querySelectorAll(".li")){
       const q=+c.querySelector(".r-q").value,p=+c.querySelector(".r-p").value,v=c.querySelector(".r-s").value;
       if(!(q>0)||c.querySelector(".r-p").value==="")return fail("Every line needs a quantity and a unit price.");
@@ -100,7 +124,7 @@ function review(d,kind){
         if(!code||!desc)return fail("Every new SKU needs a code and a description.");
         if(made[code.toLowerCase()])id=made[code.toLowerCase()];
         else{const r=await Q(sb.from("skus").insert({sku_code:code,description:desc,unit_of_measure:"each"}).select().single(),{dup:code+" already exists. Choose it from the SKU list instead."});if(!r)return fail();S.skus.push(r);id=made[code.toLowerCase()]=r.sku_id}
-      }else id=+v;
+      }else id=+v;FIN.push({sku_id:id,q:q,p:p});
       const e=L.find(x=>x.sku_id===id);
       if(e){e.p=(e.q*e.p+q*p)/(e.q+q);e.q+=q}else L.push({sku_id:id,q,p});
     }
@@ -117,6 +141,20 @@ function review(d,kind){
     if(rcv){const ok=await W(sb.from("inventory_records").insert(L.map(l=>({order_id:o.order_id,sku_id:l.sku_id,arrival_date:ard,quantity_received:l.q}))));
       if(!ok){msg("The order was saved, but its deliveries were not. Record them on the site page.",1);return}}
     msg("Order "+on+" saved"+(rcv?" and marked received.":"."));
+    /* LEARNING WRITES (silent): log the review with its corrections, remember item and supplier choices. See the block comment above review(). */
+    try{
+      const sup=+sid,edits=[],chg=(f,a,b,item)=>{if(String(a)!==String(b))edits.push({field:f,item:item||null,from:a,to:b})};
+      chg("supplier",nm(d.supplier),sname);chg("order number",nm(d.order_number),$("#on2").value.trim());chg("order date",od,date);
+      chg("shipping",+d.shipping||0,shp);chg("tax",+d.tax||0,tax);chg("other fees",+d.other_fees||0,fee);
+      let mt=0,mc=0;
+      FIN.forEach((f,i)=>{const it=items[i],pk=P[i];chg("quantity",it.q,f.q,it.desc);chg("unit price",it.p,f.p,it.desc);
+        if(pk.k){mt++;if(pk.k.sku_id===f.sku_id)mc++;else chg("SKU",pk.k.sku_code,(S.skus.find(s=>s.sku_id===f.sku_id)||{}).sku_code||"(new)",it.desc)}});
+      await sb.from("receipt_scans").insert({receipt_type:kind,supplier_raw:nm(d.supplier),supplier_id:sup,order_id:o.order_id,items_count:L.length,original:d,edits:edits,fields_changed:edits.length,matched_total:mt,matched_correct:mc});
+      const am={};FIN.forEach((f,i)=>{const it=items[i];[nk(it.desc),it.code&&nk(it.code)].filter(Boolean).forEach(a=>{am[a]={supplier_id:sup,alias:a,sku_id:f.sku_id}})});   /* one row per alias: a duplicate key in one upsert makes the database refuse the whole batch */
+      const ar=Object.keys(am).map(k=>am[k]);if(ar.length)await sb.from("item_aliases").upsert(ar,{onConflict:"supplier_id,alias"});
+      if(nk(d.supplier)&&nk(d.supplier)!==nk(sname))await sb.from("supplier_aliases").upsert({alias:nk(d.supplier),supplier_id:sup},{onConflict:"alias"});
+    }catch(e){}
+    logUse("receipt_saved",{receipt_type:kind,supplier_name:sname,items_count:L.length,order_id:o.order_id});   /* usage counter, see app.js logUse */
     await loadData();scanPage();
   };
 }

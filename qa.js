@@ -2,7 +2,7 @@
  * tests/qa.js - AUTOMATED SMOKE TESTS for Order Tracker. [P4, ~Nov 20 2026]
  * WHAT: loads every page in a simulated browser (jsdom) against a FAKE Supabase and checks the behaviour that
  * the manual QA plan covers: menus, popups, Enter key, delete rules, delivery date rule, alerts table, QR addresses,
- * receipt page maths. 118 checks. It never touches your real database.
+ * receipt page maths. 178 checks. It never touches your real database.
  * RUN:  cd tests && npm init -y && npm i jsdom@22 && node qa.js      (needs Node 18+)
  * LIMITS: the fake database does not enforce real rules (unique keys, triggers, Row Level Security). So this proves
  * the PAGES behave; it cannot prove your Supabase setup. Use the manual QA plan for that.
@@ -17,7 +17,7 @@ const rej=[];process.on('unhandledRejection',e=>rej.push(String(e&&e.message||e)
 const MOCK=`(function(){var D=__DATA__;window.__DATA=D;var calls=window.__CALLS=[];
 var idc={suppliers:'supplier_id',skus:'sku_id',orders:'order_id',order_lines:'order_line_id',inventory_records:'inventory_id',usage_events:'usage_id',pending_tasks:'task_id',sites:'site_id'};
 function builder(t){var st={op:'select',f:[],head:false,single:false,payload:null,sel:null};
-var b={select:function(c,o){st.sel=c===undefined?'':c;if(o&&o.head)st.head=true;return b},insert:function(p){st.op='insert';st.payload=p;return b},update:function(p){st.op='update';st.payload=p;return b},delete:function(){st.op='delete';return b},
+var b={select:function(c,o){st.sel=c===undefined?'':c;if(o&&o.head)st.head=true;return b},insert:function(p){st.op='insert';st.payload=p;return b},upsert:function(p){st.op='upsert';st.payload=p;return b},update:function(p){st.op='update';st.payload=p;return b},delete:function(){st.op='delete';return b},
 eq:function(c,v){st.f.push(['eq',c,v]);return b},in:function(c,v){st.f.push(['in',c,v]);return b},gte:function(){return b},lte:function(){return b},order:function(){return b},limit:function(){return b},
 single:function(){st.single=true;return b},maybeSingle:function(){st.single=true;return b},
 then:function(res,rej){return Promise.resolve(run()).then(res,rej)}};
@@ -25,13 +25,13 @@ function run(){calls.push({t:t,op:st.op,p:st.payload,f:st.f,head:st.head});
 var er=D.__errors&&D.__errors[t+'.'+st.op];if(er)return{data:null,error:er,count:null};
 var rows=(D[t]||[]).filter(function(r){return st.f.every(function(x){return x[0]==='eq'?String(r[x[1]])===String(x[2]):x[2].map(String).indexOf(String(r[x[1]]))>=0})});
 if(st.op==='select'){if(st.head)return{data:null,error:null,count:rows.length};return{data:st.single?(rows[0]||null):rows,error:null}}
-if(st.op==='insert'){var arr=Array.isArray(st.payload)?st.payload:[st.payload];var out=arr.map(function(p,i){var o=Object.assign({},p);o[idc[t]]=900+i;return o});
+if(st.op==='insert'||st.op==='upsert'){var arr=Array.isArray(st.payload)?st.payload:[st.payload];var out=arr.map(function(p,i){var o=Object.assign({},p);o[idc[t]]=900+i;return o});
 if(st.sel!==null)return{data:st.single?out[0]:out,error:null};return{data:null,error:null}}
 if(D.__zero)return{data:[],error:null};return{data:st.sel!==null?[{}]:null,error:null}}
 return b}
-window.__sb={from:builder,auth:{getSession:function(){return Promise.resolve({data:{session:D.__nosession?null:{user:{id:'u1'}}}})},signOut:function(){return Promise.resolve({})},signInWithPassword:function(){return Promise.resolve({error:null})}}};
-window.supabase={createClient:function(){return window.__sb}}})();`;
-const base=()=>({profiles:[{user_id:'u1',role:'admin',display_name:'Dean'}],sites:[{site_id:1,name:'Test Room',site_code:'test-room'}],
+window.__sb={from:builder,auth:{getSession:function(){return Promise.resolve({data:{session:D.__nosession?null:{user:{id:'u1'}}}})},signOut:function(){return Promise.resolve({})},signInWithPassword:function(a){calls.push({t:'auth',op:'signIn',p:a});return Promise.resolve({error:null})}}};
+window.__sb.rpc=function(n){calls.push({t:'rpc',op:n});return Promise.resolve({data:null,error:null})};window.__sb.functions={invoke:function(n,o){calls.push({t:'fn',op:n,p:o.body});return Promise.resolve({data:D.__fnresp||{ok:true,user_id:'new-1'},error:null})}};window.__sb.auth.updateUser=function(p){calls.push({t:'auth',op:'updateUser',p:p});return Promise.resolve({error:null})};window.supabase={createClient:function(){return window.__sb}}})();`;
+const base=()=>({profiles:[{user_id:'u1',role:'admin',display_name:'Dean',first_name:'Dean',last_name:'Marko',username:'dean',position:'Owner',employment_date:'2020-01-01',last_login:'2026-11-21T10:00:00Z',is_active:true},{user_id:'u2',role:'site_staff',first_name:'Maria',last_name:'Lopez',username:'maria',position:'Groomer',employment_date:'2024-05-01',last_login:null,is_active:true}],sites:[{site_id:1,name:'Test Room',site_code:'test-room'}],
 skus:[{sku_id:1,sku_code:'TEST-1',description:'Test item',unit_of_measure:'each'},{sku_id:2,sku_code:'TEST-2',description:'Second test item',unit_of_measure:'each'}],
 suppliers:[{supplier_id:1,name:'Test Supplier A'}],
 orders:[{order_id:1,order_number:'T-001',supplier_id:1,site_id:1,order_date:'2026-01-01',order_lines:[{sku_id:1,quantity_ordered:100,unit_price:5,unit_freight:.5,unit_duty:.25,unit_other:.25,landed_unit_cost:6,line_spend:600}]}],
@@ -58,11 +58,80 @@ const PAGES=['index','log','scan','history','tasks','sites','setup','site','acco
 for(const p of PAGES){await T('boot '+p,async()=>{const w=await page(p+'.html',{},p==='site'?'?s=test-room':'');
  ok(p+'.html draws content without errors',w.q('#app').textContent.length>20&&w.__errors.length===0,w.__errors.join('|'));
  const h=w.q('header');ok(p+': profile button is on the RIGHT (last item in the bar)',h.lastElementChild.id==='pwrap'&&w.q('#pwrap').style.display==='block');
- ok(p+': menu has 7 links incl Scan receipt',w.qa('#nav a').length===7&&/Scan receipt/.test(w.q('#nav').textContent))})}
+ ok(p+': menu has 8 links incl Scan receipt and People',w.qa('#nav a').length===8&&/Scan receipt/.test(w.q('#nav').textContent))})}
 await T('profile menu',async()=>{const w=await page('index.html');w.q('#pfb').click();const m=w.q('#pmenu');
  ok('profile menu opens with name, Account, Sign out',m.classList.contains('open')&&/Dean/.test(m.textContent)&&/Account/.test(m.textContent)&&/Sign out/.test(m.textContent));
  w.document.body.click();ok('menu closes on outside click',!m.classList.contains('open'));w.q('#pfb').click();w.key(w.document,'Escape');ok('menu closes on Escape',!m.classList.contains('open'));
  const w2=await page('index.html',{profiles:[{user_id:'u1',role:'admin',display_name:''}]});ok('no name: shows the user id',/u1/.test(w2.q('#pmenu').textContent))});
+await T('hamburger',async()=>{const w=await page('index.html');const nav=w.q('#nav');
+ ok('hamburger button exists at the left of the bar',!!w.q('#hb')&&w.q('header').firstElementChild.id==='hb');
+ w.q('#hb').click();ok('hamburger opens the menu and marks it expanded',nav.classList.contains('open')&&w.q('#hb').getAttribute('aria-expanded')==='true');
+ w.q('#hb').click();ok('second click closes it',!nav.classList.contains('open')&&w.q('#hb').getAttribute('aria-expanded')==='false');
+ w.q('#hb').click();w.document.body.click();ok('clicking elsewhere closes it',!nav.classList.contains('open'));
+ w.q('#hb').click();w.key(w.document,'Escape');ok('Escape closes it',!nav.classList.contains('open'));
+ w.q('#hb').click();w.q('#pfb').click();ok('opening the profile menu closes the nav (only one open)',!nav.classList.contains('open')&&w.q('#pmenu').classList.contains('open'));
+ w.q('#hb').click();ok('opening the nav closes the profile menu',nav.classList.contains('open')&&!w.q('#pmenu').classList.contains('open'));
+ for(const f of ['log','history','tasks','sites','setup','account','scan']){const x=await page(f+'.html');ok(f+'.html has the hamburger',!!x.q('#hb'))}
+ const css=fs.readFileSync(root+'style.css','utf8');ok('CSS shows the hamburger under 800px',/@media\(max-width:800px\)[\s\S]*\.hb\{display:flex\}/.test(css))});
+await T('accounts',async()=>{
+ const w=await page('index.html',{__nosession:true});w.set(w.q('#em'),'Maria');w.set(w.q('#pw'),'secret12');w.q('#in').click();await sleep(60);
+ ok('username Maria signs in as maria@staff.dogstop.invalid',w.calls().some(x=>x.t==='auth'&&x.op==='signIn'&&x.p.email==='maria@staff.dogstop.invalid'),JSON.stringify(w.calls().filter(x=>x.t==='auth')));
+ ok('sign-in then stamps last login (record_login)',w.calls().some(x=>x.t==='rpc'&&x.op==='record_login'));
+ const w2=await page('index.html',{__nosession:true});w2.set(w2.q('#em'),'Dean@Example.com');w2.set(w2.q('#pw'),'x');w2.q('#in').click();await sleep(40);ok('an email typed with @ is used as typed (lower-cased)',w2.calls().some(x=>x.op==='signIn'&&x.p.email==='dean@example.com'));
+ ok('sign-in box says Username',/Username/.test(w2.q('#app').textContent));
+ const w3=await page('index.html',{profiles:[{user_id:'u1',role:'admin',is_active:false}]});ok('a turned-off account is refused with a message',/turned off/.test(w3.msgText())&&!!w3.q('#in'));
+ const w4=await page('index.html');ok('admin menu has People',/People/.test(w4.q('#nav').textContent)&&w4.qa('#nav a').length===8);
+ const w5=await page('index.html',{profiles:[{user_id:'u1',role:'purchaser',first_name:'P',last_name:'Q'}]});ok('purchaser menu has no People',!/People/.test(w5.q('#nav').textContent));
+ ok('profile menu shows first and last name',/Dean Marko/.test(w4.q('#pmenu').textContent));
+ const a=await page('account.html');ok('account page shows username, position, access and last sign-in',/dean/.test(a.q('#app').textContent)&&/Owner/.test(a.q('#app').textContent)&&/Admin/.test(a.q('#app').textContent)&&/Last sign-in/.test(a.q('#app').textContent));
+ ok('Change password starts disabled',a.q('#cp').disabled);a.set(a.q('#p1'),'short');a.set(a.q('#p2'),'short');ok('stays disabled under 8 characters',a.q('#cp').disabled);
+ a.set(a.q('#p1'),'longenough1');a.set(a.q('#p2'),'different1');ok('stays disabled when the two differ',a.q('#cp').disabled);
+ a.set(a.q('#p2'),'longenough1');ok('enables when 8+ and matching',!a.q('#cp').disabled);a.key(a.q('#p2'),'Enter');await sleep(40);ok('Enter changes the password',a.calls().some(x=>x.op==='updateUser'&&x.p.password==='longenough1')&&/Password changed/.test(a.msgText()));
+ const p=await page('people.html');ok('people page lists both people with access levels',/Maria Lopez/.test(p.q('#app').textContent)&&/Site staff/.test(p.q('#app').textContent)&&/never/.test(p.q('#app').textContent));
+ p.set(p.q('#pf'),'Sam');p.set(p.q('#pl'),'Lee');p.set(p.q('#pu'),'Bad Name!');p.q('#psv').click();await sleep(20);ok('bad username is refused with a clear rule',/Username: 3 to 20/.test(p.msgText()));
+ p.set(p.q('#pu'),'Sam.Lee');p.set(p.q('#pp'),'Bather');p.set(p.q('#pa'),'site_staff');p.qa('.sc')[0].checked=true;p.key(p.q('#pu'),'Enter');await sleep(80);
+ const fc=p.calls().find(x=>x.t==='fn'&&x.p.action==='create');ok('add person calls manage-users with a hidden email and a 10 character temporary password',fc&&fc.p.email==='sam.lee@staff.dogstop.invalid'&&fc.p.password.length===10&&fc.p.role==='site_staff',JSON.stringify(fc&&fc.p));
+ ok('a popup shows the username and temporary password once',/Temporary password: /.test(p.q('.ov')&&p.q('.ov').textContent||'')&&/sam\.lee/.test(p.q('.ov').textContent));p.q('#my').click();await sleep(60);
+ ok('site assignments are saved for site staff',p.calls().some(x=>x.t==='site_assignments'&&x.op==='insert'));
+ const e=await page('people.html');e.qa('.edp')[1].click();ok('pencil fills the form for editing and locks the username',e.q('#pf').value==='Maria'&&e.q('#pu').disabled&&e.q('#psv').textContent==='Save changes');
+ e.set(e.q('#pp'),'Senior Groomer');e.q('#psv').click();await sleep(60);ok('saving edits updates the profile row',e.calls().some(x=>x.t==='profiles'&&x.op==='update'&&x.p.position==='Senior Groomer')&&/Saved/.test(e.msgText()),e.msgText());
+ const s2=await page('people.html');s2.qa('.edp')[0].click();s2.set(s2.q('#pa'),'purchaser');s2.q('#psv').click();await sleep(30);ok('you cannot remove your own admin access',/own admin access/.test(s2.msgText()));
+ const r=await page('people.html');r.qa('.rpw')[1].click();await sleep(30);ok('reset password asks first, on screen',/Reset the password for Maria Lopez/.test(r.q('.ov').textContent));r.q('#my').click();await sleep(60);
+ ok('reset sends a new random password to the function',r.calls().some(x=>x.t==='fn'&&x.p.action==='reset_password'&&x.p.user_id==='u2'&&x.p.password.length===10)&&/Temporary password/.test(r.q('.ov')&&r.q('.ov').textContent||''));
+ const t=await page('people.html');t.qa('.tg')[0].click();await sleep(20);ok('you cannot turn off your own account',/turn off your own/.test(t.msgText()));
+ const t2=await page('people.html');t2.qa('.tg')[1].click();await sleep(20);t2.q('#my').click();await sleep(60);ok('turning another account off calls set_active false',t2.calls().some(x=>x.t==='fn'&&x.p.action==='set_active'&&x.p.active===false));
+ const g=await page('people.html',{profiles:[{user_id:'u1',role:'purchaser'}]});ok('a non-admin opening People gets nothing',g.q('#app').textContent.trim()==='')});
+await T('usage tracking',async()=>{
+ const s=await page('scan.html');s.q('#cp').click();await sleep(40);ok('Copy prompt is logged as prompt_copied',s.calls().some(x=>x.t==='ai_usage_log'&&x.op==='insert'&&x.p.event==='prompt_copied'&&x.p.source==='copy_paste'));
+ const reply=JSON.stringify({supplier:'PetSmart',order_number:'R-9',order_date:'2026-11-18',items:[{description:'Beef treats',code:'',quantity:2,unit_price:10},{description:'Test item',code:'TEST-1',quantity:1,unit_price:5}],shipping:0,tax:0,other_fees:0});
+ s.set(s.q('#rp'),reply);s.q('#rb2').click();await sleep(30);s.q('#sv2').click();await sleep(250);const lg=s.calls().find(x=>x.t==='ai_usage_log'&&x.p&&x.p.event==='receipt_saved');
+ ok('saving a receipt logs receipt_saved with the item count',lg&&lg.p.items_count===2&&lg.p.supplier_name==='PetSmart',JSON.stringify(lg&&lg.p));
+ const now=new Date().toISOString();const d=await page('index.html',{ai_usage_log:[{event:'prompt_copied',created_at:now},{event:'prompt_copied',created_at:now},{event:'receipt_saved',items_count:3,created_at:now}]});await sleep(80);
+ const t=d.q('#uc')&&d.q('#uc').textContent||'';ok('admin dashboard shows the usage card with 2 prompts, 1 receipt, 3.0 items',/Prompts copied2/.test(t)&&/Receipts saved1/.test(t)&&/3\.0/.test(t),t);
+ const d2=await page('index.html',{profiles:[{user_id:'u1',role:'purchaser'}],ai_usage_log:[{event:'prompt_copied',created_at:now}]});await sleep(60);ok('non-admins do not see the usage card',!d2.q('#uc'))});
+await T('learning loop',async()=>{
+ const reply=JSON.stringify({supplier:'PETSMART #1234 Plano',order_number:'R-77',order_date:'2026-11-20',items:[{description:'Beef Treats, Small 12oz',code:'',quantity:2,unit_price:10}],shipping:0,tax:0,other_fees:0});
+ const d={item_aliases:[{supplier_id:1,alias:'beef treats small 12oz',sku_id:2}],supplier_aliases:[{alias:'petsmart 1234 plano',supplier_id:1}]};
+ const w=await page('scan.html',d);w.set(w.q('#rp'),reply);w.q('#rb2').click();await sleep(80);
+ ok('a remembered supplier wording preselects your supplier',w.q('#sup').value==='1',w.q('#sup').value);
+ ok('a remembered item wording preselects your SKU and says so',w.q('.r-s').value==='2'&&/past choices/.test(w.q('.li').textContent),w.q('.r-s').value+' '+w.q('.li').textContent.slice(0,60));
+ const w0=await page('scan.html');w0.set(w0.q('#rp'),reply);w0.q('#rb2').click();await sleep(80);ok('with no memory the item is flagged "Not found"',/Not found/.test(w0.q('.li').textContent));
+ w.set(w.q('.r-q'),'3');w.q('#sv2').click();await sleep(300);
+ const rs=w.calls().find(x=>x.t==='receipt_scans'&&x.op==='insert');
+ ok('saving logs the review with the correction (quantity 2 -> 3)',rs&&rs.p.fields_changed>=1&&rs.p.edits.some(e=>e.field==='quantity'&&e.from===2&&e.to===3)&&rs.p.matched_total===1&&rs.p.matched_correct===1,JSON.stringify(rs&&rs.p));
+ ok('saving remembers the item wording for this supplier',w.calls().some(x=>x.t==='item_aliases'&&x.op==='upsert'&&x.p.some(r=>r.alias==='beef treats small 12oz'&&r.sku_id===2&&r.supplier_id===1)));
+ const dd=await page('index.html',{receipt_scans:[{fields_changed:2,matched_total:4,matched_correct:3,created_at:new Date().toISOString()},{fields_changed:0,matched_total:2,matched_correct:2,created_at:new Date().toISOString()}],ai_usage_log:[]});await sleep(100);
+ const t=dd.q('#uc')&&dd.q('#uc').textContent||'';ok('dashboard shows 1.0 corrections per receipt and 83% matched correctly',/Avg corrections per receipt1\.0/.test(t)&&/Items matched correctly83%/.test(t),t)});
+await T('send to slack',async()=>{
+ const w=await page('index.html');ok('admin sees Send to Slack and Send test message',!!w.q('#sl')&&!!w.q('#st'));
+ w.__DATA.__fnresp={sent:2,failures:[]};w.q('#sl').click();await sleep(30);ok('it asks on screen first',/Send the current alerts to Slack/.test(w.q('.ov').textContent));w.q('#my').click();await sleep(80);
+ ok('confirming calls send-alerts and reports the count',w.calls().some(x=>x.t==='fn'&&x.op==='send-alerts'&&JSON.stringify(x.p)==='{}')&&/Sent 2 alerts to Slack/.test(w.msgText()),w.msgText());
+ w.q('#st').click();await sleep(30);w.q('#my').click();await sleep(80);ok('test button sends {test:true}',w.calls().some(x=>x.op==='send-alerts'&&x.p.test===true)&&/Test message sent/.test(w.msgText()),w.msgText());
+ w.__DATA.__fnresp={sent:0,failures:[]};w.q('#sl').click();await sleep(30);w.q('#my').click();await sleep(80);ok('nothing new says so',/Nothing new to send/.test(w.msgText()));
+ w.__DATA.__fnresp={sent:1,failures:[{order_number:'T-004',error:'not_in_channel'}]};w.q('#sl').click();await sleep(30);w.q('#my').click();await sleep(80);ok('Slack failures are shown on screen with the reason',/not_in_channel/.test(w.q('.ov')&&w.q('.ov').textContent||''));
+ w.q('#my')&&w.q('#my').click();
+ w.q('#sl').click();await sleep(30);w.q('#mn').click();await sleep(30);const n0=w.calls().filter(x=>x.op==='send-alerts').length;ok('Cancel sends nothing',w.calls().filter(x=>x.op==='send-alerts').length===n0);
+ const p=await page('index.html',{profiles:[{user_id:'u1',role:'purchaser'}]});ok('non-admins do not see the Slack buttons',!p.q('#sl'))});
 await T('staff gate',async()=>{const w=await page('index.html',{profiles:[{user_id:'u1',role:'site_staff',display_name:'S'}]});ok('site_staff is kept off the dashboard',w.q('#app').textContent.trim()==='')});
 await T('signed out',async()=>{const w=await page('index.html',{__nosession:true});ok('signed out shows sign-in form',!!w.q('#in')&&!w.q('#nav a'));
  w.set(w.q('#em'),'a@b.c');w.set(w.q('#pw'),'x');w.key(w.q('#pw'),'Enter');await sleep(60);ok('Enter in password box submits sign-in',w.q('#in').disabled===true||w.calls().length>=0)});
@@ -138,7 +207,7 @@ await T('scan',async()=>{const w=await page('scan.html');ok('prompt box filled w
  const sels=w.qa('.r-s');ok('item with code TEST-1 is matched to the existing SKU, the other offers a new SKU',sels[1].value==='1'&&sels[0].value==='__new',sels.map(s=>s.value).join());
  ok('online order defaults to "not yet received"',w.document.querySelector('input[name=rc]:checked').value==='no');
  const w2=await page('scan.html');w2.document.querySelector('input[name=kind][value=store]').click();w2.set(w2.q('#rp'),reply);w2.q('#rb2').click();await sleep(30);ok('store receipt: received defaults to Yes',w2.document.querySelector('input[name=rc]:checked').value==='yes');
- w2.q('#sv2').click();await sleep(250);const c=w2.calls().filter(x=>x.op==='insert');const names=c.map(x=>x.t).join();
+ w2.q('#sv2').click();await sleep(250);const c=w2.calls().filter(x=>x.op==='insert'&&x.t!=='ai_usage_log'&&x.t!=='receipt_scans');const names=c.map(x=>x.t).join();
  ok('save creates supplier, SKU, order, lines and a delivery in that order',names==='suppliers,skus,orders,order_lines,inventory_records',names+' / '+w2.msgText());
  const ln=(c.find(x=>x.t==='order_lines')||{}).p||[];const l0=ln.find(x=>x.unit_price===10)||{};
  ok('shipping and tax are spread by value (freight 1.2, tax 0.8 per unit on the 2 x $10 line)',Math.abs(l0.unit_freight-1.2)<1e-6&&Math.abs(l0.unit_duty-0.8)<1e-6,JSON.stringify(l0));

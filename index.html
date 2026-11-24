@@ -72,14 +72,54 @@ async function draw(){
   <div class="two"><div class="card"><h2>Order units by month</h2>${line(ks.map(k=>M[k].u),ks,v=>v.toLocaleString())}</div><div class="card"><h2>Spend by month</h2>${line(ks.map(k=>M[k].s),ks,money)}</div></div>
   <div class="two"><div class="card"><div class="bar" style="margin:0 0 6px;justify-content:space-between"><h2 style="margin:0">Top 5 SKUs</h2><span><button id="bs">Spend</button> <button id="bu">Units</button></span></div><div id="top"></div></div>
   <div class="card"><h2>Weekly usage</h2>${wk.length?`<div class="wk">${wk.map(k=>`<div class="${hot.includes(k)?"hot":""}" style="height:${W[k]/wm*100}%" data-t="Week of ${k}: ${W[k]}"></div>`).join("")}</div><p class="m">Amber: the 3 heaviest weeks in this range. ${hot.map(k=>k+" ("+W[k]+")").join(", ")}</p>`:'<p class="m">No usage recorded in this range.</p>'}</div></div>
-  <div class="card al"><h2>Lead-time alerts</h2>${al.length?`<div style="overflow-x:auto"><table><tr>${cols.map(c=>`<th>${H(hd(c))}</th>`).join("")}</tr>${al.map(a=>`<tr>${cols.map(c=>`<td>${H(fv(c,a[c]))}</td>`).join("")}</tr>`).join("")}</table></div>`:'<p class="m">No late orders.</p>'}</div>`;
+  <div class="card al"><div class="bar" style="margin:0 0 8px;justify-content:space-between;align-items:center"><h2 style="margin:0">Lead-time alerts</h2>${role==="admin"?'<span><button id="sl">Send to Slack</button> <button id="st">Send test message</button></span>':""}</div>${al.length?`<div style="overflow-x:auto"><table><tr>${cols.map(c=>`<th>${H(hd(c))}</th>`).join("")}</tr>${al.map(a=>`<tr>${cols.map(c=>`<td>${H(fv(c,a[c]))}</td>`).join("")}</tr>`).join("")}</table></div>`:'<p class="m">No late orders.</p>'}</div>`;
   // Top 5 SKUs, switchable between spend (s) and units (u). Drawn with plain divs for the bars.
   const top=m=>{const e=Object.entries(by).sort((a,b)=>b[1][m]-a[1][m]).slice(0,5),mx=e.length?e[0][1][m]:1;$("#top").innerHTML=e.length?e.map(x=>`<div class="row"><span>${H(skuName(x[0]))}</span><i style="width:${x[1][m]/mx*100}%"></i><b>${m==="s"?money(x[1].s):x[1].u.toLocaleString()}</b></div>`).join(""):'<p class="m">No orders in this range.</p>'};
   $("#bs").onclick=()=>top("s");$("#bu").onclick=()=>top("u");top("s");
+  if(role==="admin"){usageCard();$("#sl").onclick=()=>slack(false);$("#st").onclick=()=>slack(true)}
 }
 /*
  * Boot the page.
  */
+/*
+ * slack(test): the SEND TO SLACK buttons (admins only). [P5, ~Nov 21 2026]
+ * They call the Edge Function "send-alerts" (PROMPTS.md section G) with the signed-in admin's login. The function holds the Slack
+ * bot token as a protected secret; the browser never sees it. "Send to Slack" posts every alert that has not been posted yet to
+ * every active recipient and records each one in alert_notifications, so pressing it twice never posts twice.
+ * "Send test message" posts one harmless line (body {test:true}) to prove the connection works.
+ * The expected reply is {sent:number, failures:[{order_number, error}]} (PROMPTS.md section L asks the function for exactly that).
+ * Anything else is shown as "Done." so an unexpected reply never looks like an error.
+ */
+async function slack(test){
+  if(!await ask(test?"Send a test message to Slack?":"Send the current alerts to Slack?",test?"One short test message is posted to your Slack channel.":"Alerts that were already sent are skipped, so nothing is posted twice.",{ok:"Send",safe:true}))return;
+  const b=$(test?"#st":"#sl");b.disabled=true;
+  const{data,error}=await sb.functions.invoke("send-alerts",{body:test?{test:true}:{}});
+  b.disabled=false;
+  if(error){let m=error.message;try{const j=await error.context.json();m=j.error||JSON.stringify(j)}catch(e){}msg("Slack send failed: "+m,1);return}
+  const f=(data&&data.failures)||[];
+  if(f.length){await ask("Slack reported problems",f.slice(0,5).map(x=>(x.order_number||"message")+": "+(x.error||x.slack_error||JSON.stringify(x))).join("\n"),{info:true});return}
+  const n=data&&Array.isArray(data.sent)?data.sent.length:(data&&typeof data.sent==="number"?data.sent:null);
+  msg(test?"Test message sent to Slack.":(n===0?"Nothing new to send. Those alerts were already sent.":(n===null?"Done.":"Sent "+n+" alert"+(n===1?"":"s")+" to Slack.")));
+}
+/*
+ * usageCard(): "Receipt scanner usage this month" (admins only). [P5, ~Nov 21 2026]
+ * Counts prompts copied and receipts saved from ai_usage_log, plus the average items per receipt. Tokens and estimated cost show only
+ * when rows carry them (API route, not built yet); with copy and paste they stay "-" because the app cannot see claude.ai usage.
+ * If the table is not created yet the query errors and the card is simply not shown. Billing truth for the API, if used later, is the
+ * Claude Console Usage and Cost pages (platform.claude.com/usage and /cost); this card is only a convenience view.
+ */
+async function usageCard(){
+  const d=new Date(),m0=new Date(d.getFullYear(),d.getMonth(),1).toISOString();
+  const r=await sb.from("ai_usage_log").select("event,items_count,input_tokens,output_tokens,cost_usd,created_at").gte("created_at",m0);
+  if(r.error)return;
+  const rows=r.data||[],pc=rows.filter(x=>x.event==="prompt_copied").length,sv=rows.filter(x=>x.event==="receipt_saved");
+  const rs=await sb.from("receipt_scans").select("fields_changed,matched_total,matched_correct").gte("created_at",m0);   /* learning loop results, see scan.html */
+  let extra="";
+  if(!rs.error&&(rs.data||[]).length){const n=rs.data.length,fc=rs.data.reduce((a,x)=>a+(+x.fields_changed||0),0),mt=rs.data.reduce((a,x)=>a+(+x.matched_total||0),0),mc=rs.data.reduce((a,x)=>a+(+x.matched_correct||0),0);
+    extra=`<div class="tiles" style="margin:10px 0 0"><div><span>Avg corrections per receipt</span><b>${(fc/n).toFixed(1)}</b></div><div><span>Items matched correctly</span><b>${mt?Math.round(mc/mt*100)+"%":"-"}</b></div></div>`}
+  const items=sv.reduce((a,x)=>a+(+x.items_count||0),0),tok=rows.reduce((a,x)=>a+(+x.input_tokens||0)+(+x.output_tokens||0),0),cost=rows.reduce((a,x)=>a+(+x.cost_usd||0),0),api=rows.some(x=>x.cost_usd!=null);
+  $("#d").insertAdjacentHTML("beforeend",`<div class="card" id="uc"><h2>Receipt scanner usage this month</h2><div class="tiles" style="margin:0"><div><span>Prompts copied</span><b>${pc}</b></div><div><span>Receipts saved</span><b>${sv.length}</b></div><div><span>Avg items per receipt</span><b>${sv.length?(items/sv.length).toFixed(1):"-"}</b></div><div><span>Tokens / est. cost</span><b>${api?tok.toLocaleString()+" / "+money(cost):"-"}</b></div></div>${extra}<p class="m">Tokens and cost appear only for receipts read through the Claude API. The copy-and-paste route runs on your own claude.ai plan, so the app cannot see its tokens.</p></div>`);
+}
 start("index",dash);
 </script>
 </body>

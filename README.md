@@ -64,7 +64,8 @@ A small web app for tracking supplier orders and stock at physical locations.
 | `sites.html` | Sites and QR labels |
 | `setup.html` | Suppliers and SKUs |
 | `site.html` | Site page opened by QR code: stock, usage, deliveries |
-| `account.html` | Account placeholder |
+| `account.html` | Your details (read-only) and change password |
+| `people.html` | People (admin only): add, edit, reset password, turn off |
 | `app.js` | Shared code used by every page |
 | `style.css` | All styling |
 | `config.js` | Supabase URL and publishable key (the only file to edit when moving projects) |
@@ -102,7 +103,9 @@ If only the website broke: re-upload the files (GitHub keeps full history under 
 | `usage_events` | `usage_id`, `site_id`, `sku_id`, `event_type` (use, waste, adjustment), `quantity_change` (negative = used), `note`, `recorded_by`, `created_at` |
 | `pending_tasks` | `task_id`, `task_type`, `reference`, `sku_id`, `site_id`, `status` (open/done), `completed_order_id`, `created_at`, `completed_at` |
 | `sku_baseline_overrides` | `sku_id`, `supplier_id`, `baseline_days` (manual baseline, optional) |
-| `profiles` | `user_id` (= Supabase user), `display_name`, `role` (admin, purchaser, site_staff) |
+| `profiles` | `user_id` (= Supabase user), `display_name`, `role` (admin, purchaser, site_staff); added in P5: `username`, `first_name`, `last_name`, `position`, `employment_date`, `is_active`, `last_login` |
+| `receipt_scans`, `item_aliases`, `supplier_aliases` | P5 learning loop (see D28): review log with corrections; remembered item wording per supplier -> SKU; remembered supplier wording -> supplier |
+| `ai_usage_log` | P5: `event` (prompt_copied, receipt_saved), `source` (copy_paste, api), counts and optional tokens/cost, `created_by`, `created_at` |
 | `site_assignments` | `user_id`, `site_id` (which sites a site_staff user may use) |
 
 **Views** (saved queries): `v_order_line_status`, `v_sku_baseline`, `v_lead_time_alerts`, `v_stock_on_hand`, `v_order_metrics`. The app reads only **`v_lead_time_alerts`**. Stock on hand is computed in `site.html` (decision D11).
@@ -147,10 +150,17 @@ If only the website broke: re-upload the files (GitHub keeps full history under 
 | D20 | P4 | Receipt scanning by copy and paste through claude.ai | Free Claude plans have no API access (checked in Anthropic support docs, Nov 20) |
 | D21 | P4 | Profile menu on the right side | Your correction ("a classic layout") |
 | D22 | P4 | Deleting a SITE that is in use offers "Delete site and its data" (orders, lines, deliveries, usage, tasks) after a popup listing the counts. Suppliers and SKUs in use stay blocked | You deleted a site's deliveries from its QR page but the site would not go, because orders still pointed at it. Sites are the only item where cascading is offered since history is not rewritten for other items |
+| D23 | P4 | The menu collapses into a hamburger on screens under 800px wide, on every page (shared bar in `app.js`, rules in `style.css`); wide screens keep the full bar | Your phone screenshot showed the links wrapping into a tall block. A shared bar means one change covers all pages. To make it a hamburger on desktop too, remove the `@media(max-width:800px)` wrapper around the `.hb`, `nav` rules in `style.css` |
+| D24 | P5 | People sign in with a USERNAME. The app turns it into a hidden address `<username>@<AUTH_DOMAIN>` (config.js); anything typed with `@` is used as an email | Supabase has no native username login (checked online Nov 21). A database lookup by username would let strangers test which usernames exist |
+| D25 | P5 | Account details live as new columns on the existing `profiles` table (username, first/last name, position, employment date, is_active, last_login), not a second table | One row per login cannot drift out of step with a second table |
+| D26 | P5 | Creating logins, resetting passwords and turning accounts off go through the Edge Function `manage-users` (admin check first). Admins never type a password: the page makes a temporary one and shows it once | The admin key must never be in a browser file; no password field to mistype. Accounts are turned off, not deleted, so order history keeps its author |
+| D27 | P5 | Prompt/usage tracking: `ai_usage_log` counts prompts copied and receipts saved; tokens and cost columns exist but fill only if scanning ever uses the Claude API | The copy-and-paste route runs on your claude.ai plan, which the app cannot see. Shown to admins as a card on the dashboard |
+| D28 | P5 | Receipt learning loop: the app remembers which SKU and supplier you chose for the wording on a receipt (`item_aliases`, `supplier_aliases`) and logs every review with its corrections (`receipt_scans`); the dashboard shows corrections per receipt and % matched correctly | You asked whether corrections could make it better over time. The Claude model itself does not learn from them, so the learning lives in your data: matching improves, reading accuracy does not. The logged edits are the evidence for improving the prompt by hand |
+| D29 | P5 | Dashboard buttons Send to Slack and Send test message (admins only) call the Edge Function `send-alerts`; the answer shape is fixed in PROMPTS.md L | You asked for a button. The Slack token stays a server secret; `alert_notifications` stops double posts |
 
 ## 9. Testing
 
-**Automated:** `tests/qa.js` (118 checks, simulated browser and fake database) passed on Nov 20 2026 after the page split. It cannot test your real Supabase rules.
+**Automated:** `tests/qa.js` (178 checks, simulated browser and fake database) passed on Nov 21 2026 (178 checks: pages, hamburger, accounts, People, usage tracking, learning loop, Send to Slack). It cannot test your real Supabase rules.
 
 **Manual:** use the QA plan (link in section 2). Parts that matter most: Part 7 (alerts) and Part 6 (building the lead-time history). The alert logic was **verified working** on test data: T-004 arrived late (15 days vs baseline 12, 3 over) and T-005 in transit overdue, while Supplier B and a different SKU correctly produced no alert.
 
@@ -169,7 +179,9 @@ Note: QA parts written before Nov 20 assume the old single-page app (`#site-test
 - Order header (number, supplier, site, date) cannot be edited; delete and re-enter.
 - Slack/email alert sending is designed but **not built** (see PROMPTS.md section G).
 - No in-app user creation (invite from the Supabase dashboard).
-- Account page is a placeholder.
+- Accounts, People and the usage log are **written but need their database prompts run first** (PROMPTS.md sections I and J) and the `manage-users` Edge Function deployed.
+- No self-service password reset by email (accounts use hidden addresses); a manager resets passwords on People.
+- Usage tracking counts prompts and receipts only; tokens and cost need the API route (not built).
 - Live updates (Supabase Realtime) are not wired; the badge refreshes on page load.
 - Receipt scanning is manual copy and paste; an automatic version needs a paid Anthropic API account and an Edge Function.
 - QR labels printed before the page split are invalid.

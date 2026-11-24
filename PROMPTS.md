@@ -70,6 +70,10 @@ Prerequisites: stages 1-9 pass; a Slack app exists with scopes `chat:write` and 
 
 > Show me the SQL first. Do not run it until I confirm. Do not change any existing tables. Create alert_recipients: recipient_id bigint identity primary key, name text not null, group_name text, channel text not null check in ('slack','email'), destination text not null, slack_channel_id text, is_active boolean not null default true, created_at timestamptz default now(). Create alert_notifications: notification_id bigint identity primary key, order_id bigint not null, sku_id bigint not null, alert_status text not null check in ('arrived late','in transit overdue'), recipient_id bigint not null references alert_recipients, sent_at timestamptz default now(); add a composite foreign key on (order_id, sku_id) referencing order_lines (order_id, sku_id) and a unique constraint on (order_id, sku_id, alert_status, recipient_id). Turn on row level security on both tables and allow only users whose profiles.role is admin to read and write them.
 
+**G2b - the recipient row (Nov 21 2026; channel ID is not a secret):**
+
+> Show me the SQL first. Do not run it until I confirm. Insert one row into alert_recipients with name 'Slack alerts channel', group_name 'back of house', channel 'slack', destination 'C0CKPDZQUJX', slack_channel_id 'C0CKPDZQUJX' and is_active true. Do not change any other rows or tables.
+
 **G3 - the sending function:**
 
 > Show me the code first. Do not deploy it until I confirm. Create a Supabase Edge Function called send-alerts. It uses the admin access that Edge Functions already have (do not ask me to paste any key) to read every row of v_lead_time_alerts and every active row of alert_recipients where channel is 'slack'. For each alert and recipient pair that has no row in alert_notifications (same order_id, sku_id, alert_status and recipient_id), post one message with Slack's chat.postMessage, using the secret SLACK_BOT_TOKEN as a Bearer token, to slack_channel_id when it is set and otherwise to the destination. The message names the order_number, sku_code, supplier_name, the days, the baseline_days and the days_over. After a successful post (Slack's response has ok true), insert the row into alert_notifications. If a post fails, continue with the rest and return the failures with Slack's error text. Support a dry-run request parameter that returns what it would send without sending or inserting anything. Read secrets from environment variables only.
@@ -79,6 +83,50 @@ Prerequisites: stages 1-9 pass; a Slack app exists with scopes `chat:write` and 
 > Schedule the send-alerts function to run once a day at 8:00 AM Central time, using Supabase's scheduled jobs. Show me how to turn the schedule off.
 
 **G5 - tests (do in order):** add one recipient row (channel slack, destination your test channel name, its channel ID); call the function in **dry-run** (it should list the T-004 and T-005 alerts and send nothing); call it for real (one Slack message per alert and one `alert_notifications` row each); call it again at once (**no new messages**); deactivate the recipient and confirm nothing is sent. If the second real run sends duplicates, stop before scheduling anything.
+
+---
+
+## I. Accounts and People (P5, ~Nov 21 2026 - written, not yet run)
+
+Order matters: run **I1 before** uploading the new `app.js`/`account.html`/`people.html`, deploy **I2**, then upload the files.
+
+**I1 - database: new profile columns, last-login function, locked-down policies**
+
+> Show me the SQL first. Do not run it until I confirm. Do not change any other tables, views or policies except where stated. (1) Add these columns to profiles: username text, first_name text, last_name text, position text, employment_date date, is_active boolean not null default true, last_login timestamptz. Add a unique index on lower(username) that ignores empty values, and a check that username, when present, is 3 to 20 characters of lowercase letters, digits, dots, dashes or underscores. (2) Create a function record_login() that sets last_login to now() on the profiles row whose user_id equals auth.uid(), runs as security definer with search_path set to public, returns nothing, and can be executed only by signed-in users (revoke execute from public and anon). (3) Show me the current policies on profiles first. Then make sure row level security on profiles works like this: every signed-in user can read their own row; users whose role in profiles is 'admin' can read, insert, update and delete every row; nobody else can update any row, so a user cannot change their own role, is_active or last_login. Use the existing app_role() helper if it exists. Anonymous visitors get no access to profiles. (4) First show me how many profiles rows have role 'admin'. If it is not exactly 1, stop and tell me. If it is 1, set first_name 'Dean', last_name 'Marko' and username 'dean' on that row. (5) Afterwards show me the columns of profiles and the policies on profiles.
+
+**I2 - Edge Function `manage-users`** (Edge Functions > Deploy a new function > Via AI Assistant; read the code before deploying)
+
+> Create a Supabase Edge Function called manage-users. Show me the code before deploying. It receives a JSON POST with an 'action'. Answer OPTIONS requests and add CORS headers so a browser can call it (allow the Authorization, apikey, x-client-info and content-type headers). Security: first read the caller's Authorization header, use it to create a client that acts as the caller, and read the caller's own row in profiles; refuse with HTTP 403 and {error:'Admins only'} unless role is 'admin' and is_active is true. Only after that use the admin access that Edge Functions already have (do not ask me to paste any key). Actions: (a) create, with inputs email, username, password, first_name, last_name, position, employment_date and role. Validate: username 3 to 20 lowercase letters, digits, dots, dashes or underscores; password at least 8 characters; role one of admin, purchaser, site_staff; first and last name not empty. Create the auth user with email_confirm true. Then insert a profiles row with user_id, username, first_name, last_name, display_name (first name, a space, last name), position, employment_date, role and is_active true. If the profile insert fails, delete the new auth user again and return the error. Return {ok:true, user_id}. (b) reset_password, with inputs user_id and password (at least 8 characters): set that user's password. (c) set_active, with inputs user_id and active (true or false): set profiles.is_active, and ban the auth user for 876000 hours when active is false or remove the ban when true; refuse to turn off the caller's own account. For every failure return a JSON body {error:'plain English message'} with a suitable status code; for a duplicate username say 'That username is already taken'. Never log or return passwords.
+
+**I3 - checks after both:** create a person called testuser1 (site staff) on the People page; sign in as `testuser1` with the temporary password; confirm Last sign-in fills in; turn the account off and confirm sign-in is refused; reset the password and confirm the new one works. If creating fails with an error about the email address, change `AUTH_DOMAIN` in `config.js` (see the comment there).
+
+---
+
+## J. AI usage log table (P5, ~Nov 21 2026 - written, not yet run)
+
+Run before expecting the "Receipt scanner usage" card on the dashboard. The pages work without it (they simply log nothing and hide the card).
+
+> Show me the SQL first. Do not run it until I confirm. Do not change any existing tables. Create ai_usage_log: id bigint identity primary key, created_at timestamptz not null default now(), created_by uuid default auth.uid() references auth.users on delete set null, event text not null check in ('prompt_copied','receipt_saved'), source text not null default 'copy_paste' check in ('copy_paste','api'), receipt_type text, supplier_name text, items_count integer, order_id bigint references orders on delete set null, input_tokens integer, output_tokens integer, cost_usd numeric(10,4). Add an index on created_at. Turn on row level security. Policies: any signed-in user may insert a row only when created_by equals their own user id; users whose role in profiles is 'admin' can read, update and delete every row; nobody else can read anything; anonymous visitors get nothing.
+
+**Why `on delete set null` on order_id:** deleting an order in the app must never be blocked by a usage-log row.
+
+---
+
+## K. Receipt learning tables (P5, ~Nov 21 2026 - written, not yet run)
+
+Run before expecting the app to remember your item and supplier choices. Without it the scan page works as before and just learns nothing.
+
+> Show me the SQL first. Do not run it until I confirm. Do not change any existing tables. Create three tables. receipt_scans: id bigint identity primary key, created_at timestamptz not null default now(), created_by uuid default auth.uid() references auth.users on delete set null, receipt_type text, supplier_raw text, supplier_id bigint references suppliers on delete set null, order_id bigint references orders on delete set null, items_count integer, original jsonb, edits jsonb, fields_changed integer, matched_total integer, matched_correct integer. item_aliases: id bigint identity primary key, supplier_id bigint not null references suppliers on delete cascade, alias text not null, sku_id bigint not null references skus on delete cascade, updated_at timestamptz not null default now(), with a unique constraint on (supplier_id, alias); also make updated_at refresh to now() on every update. supplier_aliases: id bigint identity primary key, alias text not null unique, supplier_id bigint not null references suppliers on delete cascade, created_at timestamptz not null default now(). Turn on row level security on all three. Policies: users whose role in profiles is 'admin' or 'purchaser' can read, insert and update item_aliases and supplier_aliases; only 'admin' can delete from them; for receipt_scans, admin can read all rows and purchasers can read only rows where created_by equals their own user id, and both can insert rows only where created_by equals their own user id; only admin can update or delete receipt_scans. Site staff and anonymous visitors get no access to any of the three.
+
+## L. Make send-alerts answer in a fixed shape and admins-only (P5 - written, not yet run)
+
+The dashboard's Send to Slack buttons call `send-alerts`. Paste this into the Edge Function's AI assistant to update it (read the code before deploying).
+
+> Update the Edge Function send-alerts. Show me the code before deploying. (1) Before doing anything, check the caller like the manage-users function does: read the Authorization header, act as the caller, read the caller's own profiles row, and refuse with HTTP 403 and {error:'Admins only'} unless role is 'admin' and is_active is true. (2) Always answer with JSON in exactly this shape: {mode:'test' or 'dry_run' or 'live', sent: a number of messages posted, already_sent: a number of alert and recipient pairs skipped because they were already in alert_notifications, failures: a list of {order_number, error} where error is Slack's error text}. For failures with no order (test mode) leave order_number empty. (3) Keep everything else the same, including test and dry_run, the SLACK_BOT_TOKEN secret and inserting into alert_notifications only after Slack says ok. Never log or return the token.
+
+## M. How to test the learning loop (checks, P5)
+
+Use the made-up receipt in the README testing notes or any real one. Scan the same supplier twice: the first time items show "Not found" or "Best guess"; after saving, the second scan must show "Matched from your past choices" and preselect the SKU and supplier. Check the tables `receipt_scans`, `item_aliases`, `supplier_aliases` in the Table Editor for new rows.
 
 ---
 
