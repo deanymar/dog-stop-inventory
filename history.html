@@ -17,6 +17,7 @@
 <main id="app"></main>
 <div id="msg"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js"></script>
 <script src="app.js"></script>
 <script>
@@ -26,7 +27,7 @@
  * Click a row to open its lines. Pencil = edit a line, trash = delete the whole order (with a popup).
  */
 async function historyPage(){
-  $("#app").innerHTML=I("Every order placed. Click an order to see its lines, costs and deliveries.")+`<div class="bar"><input id="hq" placeholder="Search order number"><select id="hs"><option value="">All suppliers</option>${opt(S.sup,"supplier_id","name")}</select><select id="hst"><option value="">Any status</option><option>Not received</option><option>Partly received</option><option>Received</option></select><button id="hrs">Reset filters</button></div><div id="hl">Loading…</div>`;
+  $("#app").innerHTML=I("Every order placed. Click an order to see its lines, costs and deliveries.")+`<div class="bar"><input id="hq" placeholder="Search order number"><select id="hs"><option value="">All suppliers</option>${opt(S.sup,"supplier_id","name")}</select><select id="hst"><option value="">Any status</option><option>Not received</option><option>Partly received</option><option>Received</option></select><button id="hrs">Reset filters</button><button id="hx" class="noprint">Export to Excel</button></div><div id="hl">Loading…</div>`;
   // Orders newest first, limited to 500. Lines come embedded (orders -> order_lines is a real database link).
   const od=await Q(sb.from("orders").select("order_id,order_number,supplier_id,site_id,order_date,order_lines(sku_id,quantity_ordered,unit_price,unit_freight,unit_duty,unit_other,landed_unit_cost,line_spend)").order("order_date",{ascending:false}).limit(500))||[];
   const ids=od.map(o=>o.order_id);
@@ -60,9 +61,34 @@ async function historyPage(){
       if(ok){msg("Line updated.");historyPage()}};
   });
   // Re-renders the table from the in-memory rows using the three filters. No new queries.
+  /*
+   * EXPORT TO EXCEL [P5, ~Nov 21 2026]: you asked for it on Order history.
+   * WHAT: one spreadsheet row per ORDER LINE (not per order), because that is the shape Excel analysis needs: you can pivot by
+   * supplier, SKU or month and sum the Line total. Numbers are real numbers (not text) so Excel can add them. It exports exactly the
+   * rows currently shown, so use the filters first (search, supplier, status) to export a subset.
+   * HOW: a real .xlsx file made in the browser with the SheetJS library (xlsx 0.18.5 from cdnjs, pinned; SOURCE https://sheetjs.com).
+   * FALLBACK: if that library cannot load, a .csv file is saved instead. Excel opens both. The csv starts with a byte-order mark
+   * so Excel reads accented characters correctly, and quotes any field containing a comma, quote or line break (RFC 4180).
+   * Nothing is sent anywhere; the file is built in your browser from data already on screen.
+   */
+  let CUR=rows;   /* rows after the filters; draw() keeps this current */
+  const exportRows=()=>{
+    const out=[["Order number","Supplier","Site","Order date","SKU","Description","Quantity ordered","Unit price","Unit freight","Unit duty/tax","Unit other","Landed unit cost","Line total","Quantity received","First arrival date","Lead time (days)","Status"]];
+    CUR.forEach(r=>r.o.order_lines.forEach((l,i)=>{const k=S.skus.find(s=>s.sku_id==l.sku_id)||{};
+      out.push([r.o.order_number,nm(S.sup,"supplier_id",r.o.supplier_id,"name"),nm(S.sites,"site_id",r.o.site_id,"name"),r.o.order_date,k.sku_code||l.sku_id,k.description||"",+l.quantity_ordered,+l.unit_price,+l.unit_freight,+l.unit_duty,+l.unit_other,+l.landed_unit_cost,+l.line_spend,r.got[i],r.fa||"",r.fa?Math.round((new Date(r.fa)-new Date(r.o.order_date))/864e5):"",r.st])}));
+    return out};
+  const toCSV=a=>"\ufeff"+a.map(r=>r.map(v=>{v=v==null?"":String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}).join(",")).join("\r\n");
+  const saveBlob=(blob,name)=>{const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000)};
+  $("#hx").onclick=()=>{const a=exportRows();if(a.length<2)return msg("Nothing to export. Change the filters first.",1);
+    const day=today();
+    if(window.XLSX){const ws=XLSX.utils.aoa_to_sheet(a);ws["!cols"]=a[0].map((h,i)=>({wch:Math.min(40,Math.max(String(h).length,...a.slice(1,60).map(r=>String(r[i]).length))+2)}));
+      const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Order lines");XLSX.writeFile(wb,"order-history-"+day+".xlsx")}
+    else saveBlob(new Blob([toCSV(a)],{type:"text/csv;charset=utf-8"}),"order-history-"+day+".csv");
+    msg("Exported "+(a.length-1)+" order lines.")};
   const draw=()=>{
     const q=$("#hq").value.trim().toLowerCase(),su=$("#hs").value,st=$("#hst").value;
     const f=rows.filter(r=>(!q||String(r.o.order_number).toLowerCase().includes(q))&&(!su||r.o.supplier_id==su)&&(!st||r.st===st));
+    CUR=f;
     $("#hl").innerHTML=f.length?`<div class="card" style="padding:0;overflow-x:auto"><table><tr><th>Order number</th><th>Supplier</th><th>Site</th><th>Order date</th><th>Total</th><th>Status</th><th>Lead time</th><th></th></tr>${f.map(r=>{
       const d=r.fa?Math.round((new Date(r.fa)-new Date(r.o.order_date))/864e5)+" days":"—";
       const ln=r.o.order_lines.map((l,i)=>`<tr><td>${H(skuName(l.sku_id))}</td><td>${l.quantity_ordered}</td><td>${r.got[i]}</td><td>${money(l.unit_price)}</td><td>${money(l.unit_freight)}</td><td>${money(l.unit_duty)}</td><td>${money(l.unit_other)}</td><td>${money(l.landed_unit_cost)}</td><td>${money(l.line_spend)}</td><td><button class="ed" data-o="${r.o.order_id}" data-s="${l.sku_id}" title="Edit line" aria-label="Edit line">${EDIT}</button></td></tr>`).join("");

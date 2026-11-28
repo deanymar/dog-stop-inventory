@@ -32,6 +32,8 @@ Every page file has the same skeleton: `<main id="app">` (the page draws itself 
 | Turned-off accounts, role gate, admin-only People | `app.js`: `start()` |
 | Last sign-in stamp | database function `record_login()` called from `login()` |
 | Receipt matching memory and correction log | `scan.html`: `pick()`, `review()` and the "LEARNING WRITES" block in the Save handler |
+| Export to Excel | `history.html`: `exportRows()`, `toCSV()`, `saveBlob()`, the `#hx` handler |
+| Stock running low card | `index.html`: `stockCard()` (reads view `v_stock_levels`) |
 | Send to Slack buttons | `index.html`: `slack()`; Edge Function `send-alerts` |
 | AI usage counting | `app.js`: `logUse()`; called by `scan.html`; shown by `index.html` `usageCard()` |
 | Plain-English errors | `app.js`: `nice()` |
@@ -55,7 +57,7 @@ Every page file has the same skeleton: `<main id="app">` (the page draws itself 
 | `index.html` | `orders` (+ `order_lines`), `usage_events`, view `v_lead_time_alerts`, `ai_usage_log` (admins) | none |
 | `log.html` | lists from app.js | `orders`, `order_lines`; inline add to `suppliers`, `skus`; `pending_tasks` (mark done) |
 | `scan.html` | lists from app.js | `suppliers`, `skus`, `orders`, `order_lines`, `inventory_records`, `ai_usage_log` (counts) |
-| `history.html` | `orders` (+ `order_lines`), `inventory_records` | `order_lines` (edit); deletes order, its lines and deliveries |
+| `history.html` | `orders` (+ `order_lines`), `inventory_records`; export builds a file in the browser | `order_lines` (edit); deletes order, its lines and deliveries |
 | `tasks.html` | `pending_tasks` | `pending_tasks` (add, delete) |
 | `sites.html` | `sites` | `sites` (add, delete) |
 | `setup.html` | lists | `suppliers`, `skus` (add, delete) |
@@ -114,6 +116,8 @@ Every page file has the same skeleton: `<main id="app">` (the page draws itself 
 | People shows nothing / create fails | `manage-users` not deployed, or the database prompts (PROMPTS.md I) not run | Edge Functions page; `fn()` in people.html |
 | Scan page does not remember choices | `item_aliases` / `supplier_aliases` tables not created (PROMPTS.md K), or the supplier on the receipt changed | `pick()` in scan.html |
 | Send to Slack says failed | `send-alerts` not deployed, token secret missing, bot not in channel; the red bar or popup shows Slack's reason | `slack()` in index.html; PROMPTS.md G and L |
+| Stock card missing or empty | view `v_stock_levels` not created (PROMPTS.md N), or nothing is at the first level yet | `stockCard()` in index.html |
+| Export button does nothing | pop-up/download blocked by the browser; if no .xlsx the library did not load and a .csv is saved instead | `#hx` handler in history.html |
 | Usage card missing | `ai_usage_log` table not created (PROMPTS.md J), or you are not an admin | `usageCard()` in index.html |
 | Supabase says paused | Free plan pauses after a week idle | Supabase dashboard > Restore |
 
@@ -160,14 +164,15 @@ Every page file has the same skeleton: `<main id="app">` (the page draws itself 
 | `index.html` | 28 | `dash()` | function |
 | `index.html` | 38 | `line()` | function |
 | `index.html` | 49 | `draw()` | function |
-| `index.html` | 93 | `slack()` | function |
-| `index.html` | 111 | `usageCard()` | function |
+| `index.html` | 94 | `stockCard()` | function |
+| `index.html` | 110 | `slack()` | function |
+| `index.html` | 129 | `usageCard()` | function |
 | `log.html` | 31 | `logPage()` | function |
 | `scan.html` | 28 | `SCHEMA` | value/arrow function |
 | `scan.html` | 34 | `rpt` | value/arrow function |
 | `scan.html` | 40 | `scanPage()` | function |
 | `scan.html` | 73 | `review()` | function |
-| `history.html` | 28 | `historyPage()` | function |
+| `history.html` | 29 | `historyPage()` | function |
 | `tasks.html` | 29 | `tasksPage()` | function |
 | `sites.html` | 31 | `sitesPage()` | function |
 | `setup.html` | 30 | `setupPage()` | function |

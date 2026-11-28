@@ -76,11 +76,28 @@ async function draw(){
   // Top 5 SKUs, switchable between spend (s) and units (u). Drawn with plain divs for the bars.
   const top=m=>{const e=Object.entries(by).sort((a,b)=>b[1][m]-a[1][m]).slice(0,5),mx=e.length?e[0][1][m]:1;$("#top").innerHTML=e.length?e.map(x=>`<div class="row"><span>${H(skuName(x[0]))}</span><i style="width:${x[1][m]/mx*100}%"></i><b>${m==="s"?money(x[1].s):x[1].u.toLocaleString()}</b></div>`).join(""):'<p class="m">No orders in this range.</p>'};
   $("#bs").onclick=()=>top("s");$("#bu").onclick=()=>top("u");top("s");
+  stockCard();
   if(role==="admin"){usageCard();$("#sl").onclick=()=>slack(false);$("#st").onclick=()=>slack(true)}
 }
 /*
  * Boot the page.
  */
+/*
+ * stockCard(): "Stock running low" on the dashboard. [P5, ~Nov 21 2026]
+ * Lists every site + SKU whose stock is used up to at least your first alert level (default 50%). Reads the database view
+ * v_stock_levels (PROMPTS.md section N). Percent used = what has been used since the last delivery, as a share of the stock you had
+ * right after that delivery; 100% = used up. WHY "since the last delivery" and not a par level you must type for every item:
+ * it needs no set-up and starts again by itself when new stock arrives. A manual par level can be added later if you want it.
+ * The thresholds (50, 75, 100 by default) live in app_settings so you can change them without touching code.
+ * If the view does not exist yet the card is simply not shown.
+ */
+async function stockCard(){
+  const r=await sb.from("v_stock_levels").select("*");
+  if(r.error)return;
+  const st=await sb.from("app_settings").select("stock_alert_1").limit(1),t1=(!st.error&&st.data&&st.data[0]&&+st.data[0].stock_alert_1)||50;
+  const rows=(r.data||[]).filter(x=>+x.percent_used>=t1).sort((a,b)=>b.percent_used-a.percent_used);
+  $("#d").insertAdjacentHTML("beforeend",`<div class="card" id="sc"><h2>Stock running low</h2>${rows.length?`<div style="overflow-x:auto"><table><tr><th>Site</th><th>SKU</th><th>Used</th><th>On hand</th><th>Last delivery</th></tr>${rows.map(x=>`<tr><td>${H(x.site_name)}</td><td>${H(x.sku_code)} ${H(x.description||"")}</td><td><b style="color:${+x.percent_used>=100?"var(--d)":"var(--w)"}">${Math.floor(x.percent_used)}%</b></td><td>${Math.floor(x.on_hand*10)/10}</td><td>${H(x.last_delivery_date||"")}</td></tr>`).join("")}</table></div>`:`<p class="m">Nothing is ${t1}% used or more.</p>`}<p class="m">Percent used = what was used since the last delivery, out of the stock you had right after it.</p></div>`);
+}
 /*
  * slack(test): the SEND TO SLACK buttons (admins only). [P5, ~Nov 21 2026]
  * They call the Edge Function "send-alerts" (PROMPTS.md section G) with the signed-in admin's login. The function holds the Slack
@@ -98,8 +115,9 @@ async function slack(test){
   if(error){let m=error.message;try{const j=await error.context.json();m=j.error||JSON.stringify(j)}catch(e){}msg("Slack send failed: "+m,1);return}
   const f=(data&&data.failures)||[];
   if(f.length){await ask("Slack reported problems",f.slice(0,5).map(x=>(x.order_number||"message")+": "+(x.error||x.slack_error||JSON.stringify(x))).join("\n"),{info:true});return}
-  const n=data&&Array.isArray(data.sent)?data.sent.length:(data&&typeof data.sent==="number"?data.sent:null);
-  msg(test?"Test message sent to Slack.":(n===0?"Nothing new to send. Those alerts were already sent.":(n===null?"Done.":"Sent "+n+" alert"+(n===1?"":"s")+" to Slack.")));
+  const ls=data&&Array.isArray(data.sent)?data.sent.length:(data&&typeof data.sent==="number"?data.sent:null),sk=data&&+data.stock_sent||0;
+  const n=ls===null&&!sk?null:(ls||0)+sk;   /* total posted = lead-time alerts + stock alerts */
+  msg(test?"Test message sent to Slack.":(n===0?"Nothing new to send. Those alerts were already sent.":(n===null?"Done.":"Sent "+n+" alert"+(n===1?"":"s")+" to Slack"+(sk?" ("+(ls||0)+" lead-time, "+sk+" stock).":"."))));
 }
 /*
  * usageCard(): "Receipt scanner usage this month" (admins only). [P5, ~Nov 21 2026]

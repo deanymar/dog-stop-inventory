@@ -157,10 +157,13 @@ If only the website broke: re-upload the files (GitHub keeps full history under 
 | D27 | P5 | Prompt/usage tracking: `ai_usage_log` counts prompts copied and receipts saved; tokens and cost columns exist but fill only if scanning ever uses the Claude API | The copy-and-paste route runs on your claude.ai plan, which the app cannot see. Shown to admins as a card on the dashboard |
 | D28 | P5 | Receipt learning loop: the app remembers which SKU and supplier you chose for the wording on a receipt (`item_aliases`, `supplier_aliases`) and logs every review with its corrections (`receipt_scans`); the dashboard shows corrections per receipt and % matched correctly | You asked whether corrections could make it better over time. The Claude model itself does not learn from them, so the learning lives in your data: matching improves, reading accuracy does not. The logged edits are the evidence for improving the prompt by hand |
 | D29 | P5 | Dashboard buttons Send to Slack and Send test message (admins only) call the Edge Function `send-alerts`; the answer shape is fixed in PROMPTS.md L | You asked for a button. The Slack token stays a server secret; `alert_notifications` stops double posts |
+| D30 | P5 | Order history has Export to Excel: a real .xlsx (SheetJS 0.18.5, cdnjs, pinned) with one row per order LINE, real numbers, exactly the filtered rows; falls back to .csv if the library cannot load | You asked for it. One row per line is the shape Excel pivots need |
+| D31 | P5 | Stock alerts: percent used = used since the last delivery / stock right after it; levels 50, 75, 100 (settings `stock_alert_1..3`); each level fires once per delivery cycle per recipient (`stock_alerts_sent`); lower levels skipped when a higher one is crossed at once | You asked for messages at 50%, 60-75% and 100% used up. No per-item par levels to type. The middle level is 75 unless you choose 60-70 |
+| D32 | P5 | Slack numbers are shown rounded DOWN; automatic daily run uses a `CRON_SECRET` header because a schedule has no logged-in admin | You asked for floored numbers (note: floored separately they may not add up by 1) and for automatic messages |
 
 ## 9. Testing
 
-**Automated:** `tests/qa.js` (178 checks, simulated browser and fake database) passed on Nov 21 2026 (178 checks: pages, hamburger, accounts, People, usage tracking, learning loop, Send to Slack). It cannot test your real Supabase rules.
+**Automated:** `tests/qa.js` (189 checks, simulated browser and fake database) passed on Nov 21 2026 (189 checks: pages, hamburger, accounts, People, usage tracking, learning loop, Send to Slack, export, stock card). It cannot test your real Supabase rules.
 
 **Manual:** use the QA plan (link in section 2). Parts that matter most: Part 7 (alerts) and Part 6 (building the lead-time history). The alert logic was **verified working** on test data: T-004 arrived late (15 days vs baseline 12, 3 over) and T-005 in transit overdue, while Supplier B and a different SKU correctly produced no alert.
 
@@ -177,7 +180,7 @@ Note: QA parts written before Nov 20 assume the old single-page app (`#site-test
 ## 11. Known issues and not built
 
 - Order header (number, supplier, site, date) cannot be edited; delete and re-enter.
-- Slack/email alert sending is designed but **not built** (see PROMPTS.md section G).
+- Slack alerts: manual buttons work. The AUTOMATIC daily run and the stock-level alerts need PROMPTS.md sections N, O and P run in Supabase. Email alerts are not built.
 - No in-app user creation (invite from the Supabase dashboard).
 - Accounts, People and the usage log are **written but need their database prompts run first** (PROMPTS.md sections I and J) and the `manage-users` Edge Function deployed.
 - No self-service password reset by email (accounts use hidden addresses); a manager resets passwords on People.

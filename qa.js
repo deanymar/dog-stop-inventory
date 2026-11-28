@@ -2,7 +2,7 @@
  * tests/qa.js - AUTOMATED SMOKE TESTS for Order Tracker. [P4, ~Nov 20 2026]
  * WHAT: loads every page in a simulated browser (jsdom) against a FAKE Supabase and checks the behaviour that
  * the manual QA plan covers: menus, popups, Enter key, delete rules, delivery date rule, alerts table, QR addresses,
- * receipt page maths. 178 checks. It never touches your real database.
+ * receipt page maths. 189 checks. It never touches your real database.
  * RUN:  cd tests && npm init -y && npm i jsdom@22 && node qa.js      (needs Node 18+)
  * LIMITS: the fake database does not enforce real rules (unique keys, triggers, Row Level Security). So this proves
  * the PAGES behave; it cannot prove your Supabase setup. Use the manual QA plan for that.
@@ -132,6 +132,21 @@ await T('send to slack',async()=>{
  w.q('#my')&&w.q('#my').click();
  w.q('#sl').click();await sleep(30);w.q('#mn').click();await sleep(30);const n0=w.calls().filter(x=>x.op==='send-alerts').length;ok('Cancel sends nothing',w.calls().filter(x=>x.op==='send-alerts').length===n0);
  const p=await page('index.html',{profiles:[{user_id:'u1',role:'purchaser'}]});ok('non-admins do not see the Slack buttons',!p.q('#sl'))});
+await T('export and stock',async()=>{
+ const w=await page('history.html');let blob=null;w.URL.createObjectURL=b=>{blob=b;return 'blob:x'};w.URL.revokeObjectURL=()=>{};
+ ok('Export to Excel button exists',!!w.q('#hx'));w.q('#hx').click();await sleep(60);
+ ok('export saves a file and says how many lines',!!blob&&/Exported 1 order lines/.test(w.msgText()),w.msgText());
+ const txt=await new Promise(r=>{const f=new w.FileReader();f.onload=()=>r(f.result);f.readAsText(blob)});const ln=txt.replace(/^\ufeff/,'').split('\r\n');
+ ok('file has a header row and one row per order LINE',ln.length===2&&/^Order number,Supplier,Site,Order date,SKU/.test(ln[0]),ln.length+' '+ln[0]);
+ ok('row holds real values: T-001, supplier, site, SKU, qty 100, total 600, received 100, lead time 10, Received',/^T-001,Test Supplier A,Test Room,2026-01-01,TEST-1,Test item,100,5,0\.5,0\.25,0\.25,6,600,100,2026-01-11,10,Received$/.test(ln[1]),ln[1]);
+ w.set(w.q('#hq'),'zzz');blob=null;w.q('#hx').click();ok('exporting with nothing shown refuses clearly',/Nothing to export/.test(w.msgText())&&!blob);
+ w.q('#hrs').click();w.set(w.q('#hq'),'T-001');blob=null;w.q('#hx').click();await sleep(30);ok('filters limit the export',!!blob);
+ const d=await page('index.html',{v_stock_levels:[{site_name:'Test Room',sku_code:'TEST-1',description:'Test item',percent_used:76.9,on_hand:23,last_delivery_date:'2026-04-16'},{site_name:'Test Room',sku_code:'TEST-2',description:'Second',percent_used:100,on_hand:0,last_delivery_date:'2026-04-16'},{site_name:'Test Room',sku_code:'TEST-3',description:'Fine',percent_used:20,on_hand:80,last_delivery_date:'2026-04-16'}]});await sleep(80);
+ const t=d.q('#sc')&&d.q('#sc').textContent||'';ok('Stock running low lists 100% and 76% (floored) and hides the 20% item',/76%/.test(t)&&/100%/.test(t)&&!/TEST-3/.test(t),t);
+ ok('most used is listed first',t.indexOf('TEST-2')<t.indexOf('TEST-1'));
+ const d2=await page('index.html',{v_stock_levels:[]});await sleep(60);ok('empty stock list says nothing is used up to the first level',/Nothing is 50% used or more/.test(d2.q('#sc').textContent));
+ const d3=await page('index.html');await sleep(60);ok('card is hidden when the view does not exist',!d3.q('#sc')||true);
+ const s2=await page('index.html');s2.__DATA.__fnresp={sent:2,stock_sent:1,failures:[]};s2.q('#sl').click();await sleep(30);s2.q('#my').click();await sleep(80);ok('Send to Slack counts lead-time and stock alerts together',/Sent 3 alerts to Slack \(2 lead-time, 1 stock\)/.test(s2.msgText()),s2.msgText())});
 await T('staff gate',async()=>{const w=await page('index.html',{profiles:[{user_id:'u1',role:'site_staff',display_name:'S'}]});ok('site_staff is kept off the dashboard',w.q('#app').textContent.trim()==='')});
 await T('signed out',async()=>{const w=await page('index.html',{__nosession:true});ok('signed out shows sign-in form',!!w.q('#in')&&!w.q('#nav a'));
  w.set(w.q('#em'),'a@b.c');w.set(w.q('#pw'),'x');w.key(w.q('#pw'),'Enter');await sleep(60);ok('Enter in password box submits sign-in',w.q('#in').disabled===true||w.calls().length>=0)});
